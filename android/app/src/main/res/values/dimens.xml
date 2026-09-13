@@ -1,0 +1,4 @@
+<resources>
+    <dimen name="page_padding">24dp</dimen>
+    <dimen name="card_radius">18dp</dimen>
+</resources>

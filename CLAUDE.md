@@ -13,9 +13,9 @@ docs/ - 设计与架构语义地图
 src/server/lib/drizzle/schema.ts - 业务数据模型
 src/shared/types/constants.ts - 元素、品质、境界与材料类型
 src/react-app/router.tsx - React Router 游戏场景注册
+android/ - Android WebView 壳层、协议确认与移动端打包
 </config>
 
 法则：共享规则先行·服务端守边界·状态写入可追溯·文档与代码同构
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
-

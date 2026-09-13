@@ -209,3 +209,9 @@ sponsorkit/.cache*.json
 sponsorkit/sponsors.json
 
 .venv*
+
+# Android Studio / Gradle output
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
