@@ -37,6 +37,8 @@ import sectsRouter from '@server/routes/api/sects.router';
 import sponsorshipRouter from '@server/routes/api/sponsorship.router';
 import spiritFieldRouter from '@server/routes/api/spirit-field.router';
 import tasksRouter from '@server/routes/api/tasks.router';
+import telegramRouter from '@server/routes/api/telegram.router';
+import accountTelegramRouter from '@server/routes/api/account-telegram.router';
 import towerRouter from '@server/routes/api/tower.router';
 import worldChatRouter from '@server/routes/api/world-chat.router';
 import playerRouter from '@server/routes/player.router';
@@ -79,6 +81,8 @@ apiRouter.get('/health-check', async (c) => {
 
 apiRouter.route('/player', playerRouter);
 apiRouter.route('/account', accountRouter);
+apiRouter.route('/account/telegram', accountTelegramRouter);
+apiRouter.route('/telegram', telegramRouter);
 apiRouter.route('/admin', adminRouter);
 apiRouter.route('/alchemy', alchemyFormulasRouter);
 apiRouter.route('/auction', auctionRouter);

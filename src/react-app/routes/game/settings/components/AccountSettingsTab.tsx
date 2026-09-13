@@ -69,6 +69,48 @@ export function AccountSettingsTab() {
   const [deletionConfirmation, setDeletionConfirmation] = useState('');
   const [deletionSubmitting, setDeletionSubmitting] = useState(false);
   const [deletionMessage, setDeletionMessage] = useState<string | null>(null);
+  const [telegramBinding, setTelegramBinding] = useState<{ telegramUsername: string | null; worldPushEnabled: boolean } | null>(null);
+  const [telegramToken, setTelegramToken] = useState<string | null>(null);
+  const [telegramLoading, setTelegramLoading] = useState(false);
+  const [telegramMessage, setTelegramMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const copyTelegramCommand = async () => {
+    if (!telegramToken) return;
+    try {
+      await navigator.clipboard.writeText(`/bind ${telegramToken}`);
+      setTelegramMessage({ type: 'success', text: '绑定命令已复制，请粘贴到 Bot 私聊中' });
+    } catch {
+      setTelegramMessage({ type: 'error', text: '复制失败，请手动复制下方命令' });
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/account/telegram').then((response) => response.json()).then((result: { success?: boolean; data?: { binding?: typeof telegramBinding } }) => {
+      if (!cancelled && result.success) setTelegramBinding(result.data?.binding ?? null);
+    }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  const generateTelegramToken = async () => {
+    if (telegramLoading) return;
+    setTelegramLoading(true); setTelegramMessage(null); setTelegramToken(null);
+    try {
+      const response = await fetch('/api/account/telegram/token', { method: 'POST' });
+      const result = await response.json() as { success?: boolean; data?: { token?: string }; error?: string };
+      if (!response.ok || !result.success || !result.data?.token) throw new Error(result.error ?? '密钥生成失败');
+      setTelegramToken(result.data.token);
+      setTelegramMessage({ type: 'success', text: '密钥已生成，10 分钟内发送给 Bot：/bind 密钥' });
+    } catch (error) { setTelegramMessage({ type: 'error', text: error instanceof Error ? error.message : '密钥生成失败' }); }
+    finally { setTelegramLoading(false); }
+  };
+
+  const revokeTelegram = async () => {
+    if (telegramLoading) return;
+    setTelegramLoading(true);
+    try { await fetch('/api/account/telegram', { method: 'DELETE' }); setTelegramBinding(null); setTelegramToken(null); setTelegramMessage({ type: 'success', text: 'Telegram 绑定已解除' }); }
+    catch { setTelegramMessage({ type: 'error', text: '解绑失败，请稍后重试' }); }
+    finally { setTelegramLoading(false); }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -303,6 +345,23 @@ export function AccountSettingsTab() {
           label="账号创建时间"
           value={formatDateTime(user?.createdAt)}
         />
+      </SettingsSection>
+
+      <SettingsSection
+        title="Telegram Bot"
+        description={telegramBinding ? `已绑定${telegramBinding.telegramUsername ? `：@${telegramBinding.telegramUsername}` : ''}。在 Bot 中可使用 /me、/retreat、/yield、/rank。` : '在 Telegram Bot 中绑定当前账号，可执行闭关、领取修为、查询信息和排行。'}
+      >
+        <div className="flex flex-wrap items-center gap-3">
+          <InkButton variant="primary" onClick={generateTelegramToken} pending={telegramLoading} pendingLabel="生成中…">生成绑定密钥</InkButton>
+          {telegramBinding ? <InkButton variant="secondary" onClick={revokeTelegram} disabled={telegramLoading}>解除绑定</InkButton> : null}
+        </div>
+        {telegramToken ? (
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <div className="min-w-0 flex-1 rounded border border-ink/15 bg-ink/5 p-3 font-mono text-sm break-all">/bind {telegramToken}</div>
+            <InkButton variant="secondary" onClick={copyTelegramCommand}>复制命令</InkButton>
+          </div>
+        ) : null}
+        {telegramMessage ? <SettingsMessage type={telegramMessage.type} className="mt-3 block">{telegramMessage.text}</SettingsMessage> : null}
       </SettingsSection>
 
       <SettingsSection

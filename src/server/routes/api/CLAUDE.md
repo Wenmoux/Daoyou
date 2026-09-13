@@ -8,3 +8,5 @@ Hono API 路由边界。垂钓路由在此完成 active cultivator 鉴权、Zod 
 fishing.router.ts: 垂钓快照、开始会话与提竿接口，复用 FishingService 和玩家状态变更响应。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+
+Telegram 路由：`telegram.router.ts` 负责带 secret header 校验的 webhook；`account-telegram.router.ts` 负责登录用户的绑定密钥、状态查询和解绑。

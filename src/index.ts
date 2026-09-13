@@ -9,10 +9,12 @@ import {
   startOnlineBattleRuntime,
   stopOnlineBattleRuntime,
 } from './server/lib/services/onlineBattleRuntime';
+import { startTelegramWorldPush } from './server/lib/telegram/worldPush';
 
 await registerMessageInfrastructure();
 await startOnlineBattleRuntime();
 registerInternalCronJobs({ enabled: import.meta.env.PROD });
+const stopTelegramWorldPush = startTelegramWorldPush();
 
 let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals) {
@@ -20,6 +22,7 @@ async function shutdown(signal: NodeJS.Signals) {
   shuttingDown = true;
   console.info('[runtime] graceful shutdown started', { signal });
   await stopOnlineBattleRuntime();
+  stopTelegramWorldPush();
   await shutdownMessageInfrastructure();
   process.exit(0);
 }

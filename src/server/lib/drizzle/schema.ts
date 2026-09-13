@@ -1850,3 +1850,48 @@ export const creationProducts = pgTable(
     ),
   ],
 );
+
+// Telegram 绑定与通知投递状态。绑定关系独立于角色数据，避免第三方账号污染 cultivators。
+export const telegramBindings = pgTable(
+  'wanjiedaoyou_telegram_bindings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull().unique(),
+    telegramUserId: text('telegram_user_id').notNull().unique(),
+    telegramChatId: text('telegram_chat_id').notNull(),
+    telegramUsername: text('telegram_username'),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    worldPushEnabled: boolean('world_push_enabled').notNull().default(false),
+    boundAt: timestamp('bound_at').defaultNow().notNull(),
+    lastSeenAt: timestamp('last_seen_at'),
+    revokedAt: timestamp('revoked_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+    updatedAt: timestamp('updated_at').defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  (table) => [
+    index('telegram_bindings_status_idx').on(table.status),
+    index('telegram_bindings_chat_idx').on(table.telegramChatId),
+  ],
+);
+
+export const telegramBindTokens = pgTable(
+  'wanjiedaoyou_telegram_bind_tokens',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    userId: uuid('user_id').notNull(),
+    tokenHash: text('token_hash').notNull().unique(),
+    expiresAt: timestamp('expires_at').notNull(),
+    usedAt: timestamp('used_at'),
+    createdAt: timestamp('created_at').defaultNow().notNull(),
+  },
+  (table) => [index('telegram_bind_tokens_user_idx').on(table.userId, table.createdAt)],
+);
+
+export const telegramUpdates = pgTable(
+  'wanjiedaoyou_telegram_updates',
+  {
+    updateId: bigint('update_id', { mode: 'number' }).primaryKey(),
+    receivedAt: timestamp('received_at').defaultNow().notNull(),
+  },
+  (table) => [index('telegram_updates_received_idx').on(table.receivedAt)],
+);
