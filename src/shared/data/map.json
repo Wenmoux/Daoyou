@@ -442,6 +442,15 @@
       "tags": ["单人副本", "入门采药", "灵草坡", "低危历练"],
       "description": "太岳山外缘一处被溪水环绕的缓坡，灵草年份不高，却适合初入道途者熟悉秘境采集与轻度禁制。",
       "dungeon_config": { "difficulty": "easy" },
+      "fishing_config": {
+        "water_id": "qingxi-shallow",
+        "water_type": "river",
+        "fishing_level_required": 1,
+        "habitat_tags": ["青溪浅滩", "浅水", "木水灵气"],
+        "available_weather": ["晴", "雨"],
+        "available_time_buckets": ["清晨", "白昼"],
+        "special_event_pool": ["lotus-bloom"]
+      },
       "connections": ["TN_YUE_01"],
       "x": 81,
       "y": 86
@@ -753,6 +762,72 @@
       "connections": ["DJ_NORTH_01"],
       "x": 46,
       "y": 9
+    },
+    {
+      "id": "SAT_TN_09",
+      "name": "溪国·冷月湖畔",
+      "parent_id": "TN_XI_01",
+      "type": "灵湖水岸",
+      "realm_requirement": "筑基",
+      "environmental_status": null,
+      "tags": ["冷月湖", "月光水域", "灵鱼潮"],
+      "description": "云梦山脉外缘的冷月湖畔，月华落水时常有灵鲤跃出。",
+      "fishing_config": {
+        "water_id": "lingyue-lake",
+        "water_type": "lake",
+        "fishing_level_required": 1,
+        "habitat_tags": ["冷月湖", "月光水域", "灵鱼"],
+        "available_weather": ["晴", "雾"],
+        "available_time_buckets": ["黄昏", "夜半"],
+        "special_event_pool": ["moon-pull"]
+      },
+      "connections": ["TN_XI_01"],
+      "x": 86,
+      "y": 67
+    },
+    {
+      "id": "SAT_TN_10",
+      "name": "云梦山·雷泽深潭",
+      "parent_id": "TN_XI_01",
+      "type": "雷泽水眼",
+      "realm_requirement": "筑基",
+      "environmental_status": "abundant_qi",
+      "tags": ["雷泽深潭", "雷雨", "深水"],
+      "description": "云梦山雷脉汇聚成的深潭，雷雨时水底会亮起古老鳞光。",
+      "fishing_config": {
+        "water_id": "leize-deep",
+        "water_type": "spirit_pool",
+        "fishing_level_required": 2,
+        "habitat_tags": ["雷泽深潭", "雷雨", "深水"],
+        "available_weather": ["雨", "雷雨"],
+        "available_time_buckets": ["黄昏", "夜半"],
+        "special_event_pool": ["thunder-surge", "dragon-shadow"]
+      },
+      "connections": ["TN_XI_01"],
+      "x": 91,
+      "y": 67
+    },
+    {
+      "id": "SAT_ML_03",
+      "name": "慕兰·云梦古泽",
+      "parent_id": "ML_PLAINS_01",
+      "type": "古泽水眼",
+      "realm_requirement": "金丹",
+      "environmental_status": "abundant_qi",
+      "tags": ["云梦秘泽", "古泽", "异象水域"],
+      "description": "草原深处被灵雾遮蔽的古泽，偶有不属于此界的鳞光浮上水面。",
+      "fishing_config": {
+        "water_id": "yunmeng-secret",
+        "water_type": "spirit_pool",
+        "fishing_level_required": 4,
+        "habitat_tags": ["云梦秘泽", "古泽", "异象水域"],
+        "available_weather": ["雨", "雾", "雷雨"],
+        "available_time_buckets": ["夜半"],
+        "special_event_pool": ["starfall-rift", "dragon-shadow", "lotus-bloom"]
+      },
+      "connections": ["ML_PLAINS_01"],
+      "x": 92,
+      "y": 40
     },
     {
       "id": "SAT_DJ_08",

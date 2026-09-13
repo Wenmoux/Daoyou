@@ -173,6 +173,7 @@ export const REALM_ORDER: Record<RealmType, number> = {
 // 材料类型
 export const MATERIAL_TYPE_VALUES = [
   'seed',
+  'fish',
   'herb',
   'ore',
   'monster',

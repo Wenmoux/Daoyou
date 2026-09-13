@@ -239,6 +239,41 @@
       "when": 1788147338302,
       "tag": "0033_spirit_fields",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1788814634872,
+      "tag": "0034_nappy_crystal",
+      "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1788868413088,
+      "tag": "0035_illegal_namora",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1788872034227,
+      "tag": "0036_fishing_environment",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1788878434233,
+      "tag": "0037_fishing_limits_rewards",
+      "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1788921084088,
+      "tag": "0038_fishing_bait_stock",
+      "breakpoints": true
     }
   ]
 }

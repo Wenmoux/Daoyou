@@ -13,6 +13,7 @@ export const MATERIAL_ESSENCE_BY_QUALITY: Record<Quality, number> = {
 };
 
 export const MATERIAL_ESSENCE_TYPE_MULTIPLIER: Record<string, number> = {
+  fish: 1.1,
   herb: 1,
   ore: 1,
   monster: 1.2,

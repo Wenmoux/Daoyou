@@ -347,6 +347,13 @@ function buildMysteryMask(type: MaterialType) {
       names: ['封存灵种'],
       descriptions: ['灵种只由灵田专用生成器塑造，不参与通用神秘物品生成。'],
     },
+    fish: {
+      names: ['盐封鳞包', '旧渔篓残鳞'],
+      descriptions: [
+        '粗盐掩住了鳞光，包裹深处仍有微弱水灵气息。',
+        '残鳞已失去大半光泽，边缘却还留着不寻常的灵压。',
+      ],
+    },
     herb: {
       names: ['枯萎的灵草束', '封泥药囊', '残叶草根'],
       descriptions: [

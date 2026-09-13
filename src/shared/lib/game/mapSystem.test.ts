@@ -13,6 +13,7 @@ import {
   getSectLandmarkBySectId,
   resolveDungeonEnemyDifficulty,
   resolveDungeonMapConfig,
+  resolveFishingMapSummary,
 } from './mapSystem';
 
 function createNode(difficulty?: DungeonDifficultyTier): MapNodeInfo {
@@ -118,9 +119,9 @@ describe('resolveDungeonMapConfig', () => {
   it('keeps curated map data explicitly classified', () => {
     const satelliteNodes = getAllSatelliteNodes();
 
-    // 只有卫星节点需要 dungeon_config
+    // 卫星节点至少明确一种可操作内容：秘境或垂钓。
     expect(
-      satelliteNodes.every((node) => node.dungeon_config?.difficulty),
+      satelliteNodes.every((node) => node.dungeon_config?.difficulty || node.fishing_config?.water_id),
     ).toBe(true);
 
     // 主节点不应有 dungeon_config（副本仅限卫星节点）
@@ -143,6 +144,25 @@ describe('resolveDungeonMapConfig', () => {
         satelliteNodes.find((node) => node.id === 'SAT_DJ_02')!,
       ).difficultyLabel,
     ).toBe('绝境');
+  });
+
+  it('keeps fishing waters on explicit map satellite nodes', () => {
+    expect(getMapNode('TN_YUE_01')?.fishing_config).toBeUndefined();
+    expect(getMapNode('SAT_TN_08')?.fishing_config?.water_id).toBe('qingxi-shallow');
+    expect(getMapNode('SAT_TN_09')?.fishing_config?.water_id).toBe('lingyue-lake');
+    expect(getMapNode('SAT_TN_10')?.fishing_config?.water_id).toBe('leize-deep');
+    expect(getMapNode('SAT_ML_03')?.fishing_config?.water_id).toBe('yunmeng-secret');
+  });
+
+  it('projects current fishing environment into map water summaries', () => {
+    const summary = resolveFishingMapSummary('SAT_TN_08', new Date('2026-09-09T08:00:00Z'));
+    expect(summary).toMatchObject({
+      waterId: 'qingxi-shallow',
+      waterName: '青溪浅湾',
+      requiredFishingLevel: 1,
+      activeTimeBuckets: ['清晨', '白昼'],
+    });
+    expect(summary?.environment.tideName).toEqual(expect.any(String));
   });
 
   it('connects every production sect to one valid world-map landmark', () => {

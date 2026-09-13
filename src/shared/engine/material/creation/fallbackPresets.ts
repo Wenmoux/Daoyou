@@ -26,6 +26,16 @@ export const FALLBACK_MATERIAL_LIBRARY: Record<MaterialType, QualityPresets> = {
     仙品: [EMPTY_PRESET],
     神品: [EMPTY_PRESET],
   },
+  fish: {
+    凡品: [{ name: '青溪鲫', description: '青溪中最常见的灵鱼，肉质清甜，带有微弱水灵气。', element: '水' }],
+    灵品: [{ name: '月纹鲈', description: '鳞纹在月下自明，适合炼制凝神类丹药。', element: '水' }],
+    玄品: [{ name: '玄甲沉鲤', description: '鳞片厚重如甲，常被用作护体类丹药的辅材。', element: '土' }],
+    真品: [{ name: '雷泽鳜', description: '雷雨将至时鳞下生光，蕴含驯服雷息的可能。', element: '雷' }],
+    地品: [{ name: '句芒木鱼', description: '背鳍似叶，所过之处水草提前返青。', element: '木' }],
+    天品: [{ name: '太虚银鳞', description: '鳞片映出星河，能作为悟性类丹方的引子。', element: '金' }],
+    仙品: [{ name: '太阴月鲲', description: '吞吐月华的仙裔鱼种，踪迹只在古泽深处出现。', element: '水' }],
+    神品: [{ name: '玄冥祖鳌', description: '神遗水族，甲纹记录着无人能解的古老潮汐。', element: '冰' }],
+  },
   herb: {
     凡品: [
       {

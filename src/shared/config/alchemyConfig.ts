@@ -1,6 +1,7 @@
 import type { ElementType, Quality } from '@shared/types/constants';
 
 export const ALCHEMY_ALLOWED_MATERIAL_TYPES = [
+  'fish',
   'herb',
   'ore',
   'monster',
@@ -23,6 +24,7 @@ export const POTENCY_BY_QUALITY: Record<Quality, number> = {
 };
 
 export const BASE_TOXICITY_BY_TYPE: Record<AlchemyMaterialType, number> = {
+  fish: 5,
   herb: 2,
   ore: 4,
   monster: 8,
@@ -31,6 +33,7 @@ export const BASE_TOXICITY_BY_TYPE: Record<AlchemyMaterialType, number> = {
 };
 
 export const BASE_STABILITY_BY_TYPE: Record<AlchemyMaterialType, number> = {
+  fish: 58,
   herb: 72,
   ore: 60,
   monster: 52,

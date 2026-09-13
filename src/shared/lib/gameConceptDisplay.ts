@@ -849,6 +849,7 @@ export const MATERIAL_TYPE_DISPLAY_MAP: Record<
   MaterialTypeDisplayInfo
 > = {
   seed: { label: '灵植种子', icon: '🌱' },
+  fish: { label: '灵鱼', icon: '🐟' },
   herb: getConceptInfo('material_herb'),
   ore: getConceptInfo('material_ore'),
   monster: getConceptInfo('material_monster'),

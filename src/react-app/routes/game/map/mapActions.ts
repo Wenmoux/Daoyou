@@ -1,3 +1,9 @@
+/**
+ * [INPUT]: 当前地图节点、场景意图与导航回调
+ * [OUTPUT]: 地图详情抽屉的历练、坊市和垂钓动作
+ * [POS]: 地图场景的动作策略层，不承载具体页面状态
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
 import type { MapNodeDetailAction } from '@app/components/feature/map';
 
 export type MapIntent = 'market' | 'dungeon' | 'sect';
@@ -6,6 +12,7 @@ export interface NodeActionContext {
   selectedNodeId: string;
   isMainNode: boolean;
   marketEnabled: boolean;
+  fishingWaterId?: string;
 }
 
 export function resolveMapIntent(value: string | null): MapIntent {
@@ -20,19 +27,38 @@ export function buildNodeActions(
 ): MapNodeDetailAction[] {
   if (intent === 'sect') return [];
 
+  const fishingAction: MapNodeDetailAction[] = ctx.fishingWaterId
+    ? [
+        {
+          key: 'enter-fishing',
+          label: '进入垂钓',
+          variant: 'primary',
+          onClick: () =>
+            navigate(
+              `/game/fishing?mapNodeId=${encodeURIComponent(ctx.selectedNodeId)}`,
+            ),
+        },
+      ]
+    : [];
+
   if (intent === 'dungeon') {
-    if (ctx.isMainNode) return [];
     return [
-      {
-        key: 'enter-dungeon',
-        label: '前往历练',
-        variant: 'primary',
-        onClick: () => navigate(`/game/dungeon?nodeId=${ctx.selectedNodeId}`),
-      },
+      ...fishingAction,
+      ...(ctx.isMainNode
+        ? []
+        : [
+            {
+              key: 'enter-dungeon',
+              label: '前往历练',
+              variant: 'secondary' as const,
+              onClick: () =>
+                navigate(`/game/dungeon?nodeId=${ctx.selectedNodeId}`),
+            },
+          ]),
     ];
   }
 
-  const actions: MapNodeDetailAction[] = [];
+  const actions: MapNodeDetailAction[] = [...fishingAction];
   if (!ctx.isMainNode) {
     actions.push({
       key: 'enter-dungeon',

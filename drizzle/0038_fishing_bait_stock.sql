@@ -1,0 +1,1 @@
+ALTER TABLE "wanjiedaoyou_fishing_profiles" ADD COLUMN "bait_stock" jsonb DEFAULT '{"spirit-worm":30}'::jsonb NOT NULL;

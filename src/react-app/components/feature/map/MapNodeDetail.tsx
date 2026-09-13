@@ -1,3 +1,9 @@
+/**
+ * [INPUT]: 地图节点、节点动作与垂钓环境摘要
+ * [OUTPUT]: 地图节点详情抽屉，展示节点玩法入口和当前垂钓环境
+ * [POS]: 地图场景的详情投影；不承载垂钓会话或权限判定
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
 import {
   dungeonDifficultyColorMap,
   tierColorMap,
@@ -8,6 +14,7 @@ import { InkTag } from '@app/components/ui/InkTag';
 import { cn } from '@shared/lib/cn';
 import {
   resolveDungeonMapConfig,
+  resolveFishingMapSummary,
   type MapNodeInfo,
 } from '@shared/lib/game/mapSystem';
 import type { ComponentProps } from 'react';
@@ -37,6 +44,7 @@ function formatRewardBonus(multiplier: number): string {
  */
 export function MapNodeDetail({ node, onClose, actions }: MapNodeDetailProps) {
   const dungeonConfig = resolveDungeonMapConfig(node);
+  const fishingSummary = resolveFishingMapSummary(node.id);
 
   return (
     <InkDetailDrawer
@@ -104,6 +112,32 @@ export function MapNodeDetail({ node, onClose, actions }: MapNodeDetailProps) {
           </InkTag>
         ))}
       </div>
+
+      {fishingSummary ? (
+        <div className="border-ink/15 bg-ink/[0.03] mt-4 space-y-2 border p-3 text-xs">
+          <div className="flex items-center justify-between gap-2">
+            <span className="font-semibold text-ink">🎣 {fishingSummary.waterName}</span>
+            <span className="text-crimson">垂钓 Lv.{fishingSummary.requiredFishingLevel}</span>
+          </div>
+          <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-ink-secondary">
+            <span>天气：{fishingSummary.environment.weather}</span>
+            <span>时辰：{fishingSummary.environment.timePhase}</span>
+            <span>月相：{fishingSummary.environment.moonPhase}</span>
+            <span>鱼潮：{fishingSummary.environment.tideName}</span>
+          </div>
+          {fishingSummary.environment.anomalyName ? (
+            <p className="text-crimson">稀有异象：{fishingSummary.environment.anomalyName}</p>
+          ) : null}
+          {fishingSummary.activeTimeBuckets.length > 0 ? (
+            <p className="text-ink-secondary">活跃时段：{fishingSummary.activeTimeBuckets.join('、')}</p>
+          ) : null}
+          <div className="flex flex-wrap gap-1">
+            {fishingSummary.habitatTags.map((tag) => (
+              <span key={tag} className="border-ink/15 border px-1.5 py-0.5 text-[11px]">{tag}</span>
+            ))}
+          </div>
+        </div>
+      ) : null}
     </InkDetailDrawer>
   );
 }

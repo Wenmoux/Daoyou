@@ -13,6 +13,7 @@ import { extractSemanticTagsFromText } from './SemanticTagAllowlist';
 
 const TYPE_TAGS: Record<Material['type'], string> = {
   seed: CreationTags.MATERIAL.TYPE_SEED,
+  fish: CreationTags.MATERIAL.TYPE_MONSTER,
   herb: CreationTags.MATERIAL.TYPE_HERB,
   ore: CreationTags.MATERIAL.TYPE_ORE,
   monster: CreationTags.MATERIAL.TYPE_MONSTER,

@@ -232,6 +232,25 @@ export const router = createBrowserRouter(
               )}
             />
             <Route
+              path="fishing"
+              lazy={lazyRoute(() => import('@app/routes/game/fishing/route'))}
+              handle={scene(
+                {
+                  id: 'fishing',
+                  presentation: 'workflow',
+                },
+                '垂钓问津',
+              )}
+            />
+            <Route
+              path="fishing/codex"
+              lazy={lazyRoute(() => import('@app/routes/game/fishing/codex/route'))}
+              handle={scene(
+                { id: 'fishing-codex', presentation: 'archive' },
+                '万鱼图鉴',
+              )}
+            />
+            <Route
               path="body-cultivation"
               lazy={lazyRoute(
                 () => import('@app/routes/game/body-cultivation/route'),

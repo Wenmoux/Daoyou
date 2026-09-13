@@ -1,3 +1,9 @@
+/**
+ * [INPUT]: 静态地图节点、当前角色宗门上下文与地图导航意图
+ * [OUTPUT]: 可缩放世界地图、节点详情与垂钓入口
+ * [POS]: GameMapLayout 下的世界地图场景，负责选择节点并委托动作策略
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
 import {
   MapNode,
   MapNodeDetail,
@@ -85,18 +91,21 @@ export default function MapPage() {
       return {
         isMainNode: false,
         marketEnabled: false,
+        fishingWaterId: undefined,
       };
     }
     if (isSectLandmark(selectedNode)) {
       return {
         isMainNode: false,
         marketEnabled: false,
+        fishingWaterId: undefined,
       };
     }
     const isMainNode = 'region' in selectedNode;
     return {
       isMainNode,
       marketEnabled: isMainNode && Boolean(selectedNode.market_config?.enabled),
+      fishingWaterId: selectedNode.fishing_config?.water_id,
     };
   }, [selectedNode, selectedNodeId]);
 
@@ -110,6 +119,7 @@ export default function MapPage() {
         selectedNodeId,
         isMainNode: nodeContext.isMainNode,
         marketEnabled: nodeContext.marketEnabled,
+        fishingWaterId: nodeContext.fishingWaterId,
       },
       (path) => navigate(path),
     );
@@ -117,6 +127,7 @@ export default function MapPage() {
     intent,
     nodeContext.isMainNode,
     nodeContext.marketEnabled,
+    nodeContext.fishingWaterId,
     navigate,
     selectedNode,
     selectedNodeId,

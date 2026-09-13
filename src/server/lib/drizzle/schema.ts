@@ -1,3 +1,9 @@
+/**
+ * [INPUT]: Drizzle ORM 类型、共享领域模型与业务表定义
+ * [OUTPUT]: wanjiedaoyou_* 数据表及其查询类型
+ * [POS]: 服务端持久化单一事实源，垂钓档案与会话在此注册
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
 import type { BattleReplayV1 } from '@shared/contracts/battleReplay';
 import type {
   ResourceChangeOperation,
@@ -19,6 +25,7 @@ import type {
 } from '@shared/types/consumable';
 import type { MailAttachment } from '@shared/types/mail';
 import type { SpiritFieldPlotState } from '@shared/engine/spirit-field/types';
+import type { FishCodexEntry } from '@shared/engine/fishing/types';
 import { sql } from 'drizzle-orm';
 import {
   bigint,
@@ -138,6 +145,108 @@ export const spiritFields = pgTable(
   (table) => [
     uniqueIndex('spirit_fields_cultivator_uidx').on(table.cultivatorId),
     index('spirit_fields_updated_idx').on(table.updatedAt),
+  ],
+);
+
+// 垂钓图鉴：每个角色对每种鱼只保留一条聚合记录，鱼获本身仍进入材料背包。
+export const fishCodexEntries = pgTable(
+  'wanjiedaoyou_fish_codex_entries',
+  {
+    cultivatorId: uuid('cultivator_id')
+      .references(() => cultivators.id, { onDelete: 'cascade' })
+      .notNull(),
+    speciesId: varchar('species_id', { length: 80 }).notNull(),
+    caughtCount: integer('caught_count').notNull().default(0),
+    highestQuality: varchar('highest_quality', { length: 10 })
+      .$type<FishCodexEntry['highestQuality']>()
+      .notNull(),
+    largestWeight: doublePrecision('largest_weight').notNull().default(0),
+    bestBaitId: varchar('best_bait_id', { length: 80 }),
+    bestWeather: varchar('best_weather', { length: 16 }),
+    bestMoonPhase: varchar('best_moon_phase', { length: 16 }),
+    bestAnomalyId: varchar('best_anomaly_id', { length: 80 }),
+    firstCaughtAt: timestamp('first_caught_at').notNull().defaultNow(),
+    lastCaughtAt: timestamp('last_caught_at').notNull().defaultNow(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.cultivatorId, table.speciesId] }),
+    index('fish_codex_cultivator_idx').on(table.cultivatorId),
+  ],
+);
+
+// 垂钓成长档案：经验与统计独立于角色 condition，避免把玩法状态塞进通用 JSON。
+export const fishingProfiles = pgTable(
+  'wanjiedaoyou_fishing_profiles',
+  {
+    cultivatorId: uuid('cultivator_id')
+      .references(() => cultivators.id, { onDelete: 'cascade' })
+      .primaryKey(),
+    experience: integer('experience').notNull().default(0),
+    totalCasts: integer('total_casts').notNull().default(0),
+    successfulCatches: integer('successful_catches').notNull().default(0),
+    escapedFish: integer('escaped_fish').notNull().default(0),
+    largestWeight: doublePrecision('largest_weight').notNull().default(0),
+    dailyCasts: integer('daily_casts').notNull().default(0),
+    dailyResetAt: timestamp('daily_reset_at').notNull().defaultNow(),
+    unlockedWaterIds: jsonb('unlocked_water_ids')
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    unlockedBaitIds: jsonb('unlocked_bait_ids')
+      .$type<string[]>()
+      .notNull()
+      .default(['spirit-worm']),
+    baitStock: jsonb('bait_stock')
+      .$type<Record<string, number>>()
+      .notNull()
+      .default({ 'spirit-worm': 30 }),
+    unlockedRewardKeys: jsonb('unlocked_reward_keys')
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [index('fishing_profiles_updated_idx').on(table.updatedAt)],
+);
+
+// 垂钓会话：咬钩窗口由服务端生成并持久化，刷新页面或重复请求不会跳过操作阶段。
+export const fishingSessions = pgTable(
+  'wanjiedaoyou_fishing_sessions',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    cultivatorId: uuid('cultivator_id')
+      .references(() => cultivators.id, { onDelete: 'cascade' })
+      .notNull(),
+    locationId: varchar('location_id', { length: 80 }).notNull(),
+    mapNodeId: varchar('map_node_id', { length: 80 }),
+    baitId: varchar('bait_id', { length: 80 }).notNull().default('spirit-worm'),
+    weather: varchar('weather', { length: 16 }).notNull().default('晴'),
+    timePhase: varchar('time_phase', { length: 16 }).notNull().default('白昼'),
+    moonPhase: varchar('moon_phase', { length: 16 }).notNull().default('上弦'),
+    tideId: varchar('tide_id', { length: 80 }).notNull().default('still-water'),
+    anomalyId: varchar('anomaly_id', { length: 80 }),
+    state: varchar('state', { length: 24 }).notNull(),
+    castAt: timestamp('cast_at').notNull(),
+    biteAt: timestamp('bite_at').notNull(),
+    biteDeadlineAt: timestamp('bite_deadline_at').notNull(),
+    resolvedAt: timestamp('resolved_at'),
+    result: jsonb('result'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at')
+      .notNull()
+      .defaultNow()
+      .$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index('fishing_sessions_cultivator_state_idx').on(
+      table.cultivatorId,
+      table.state,
+    ),
+    index('fishing_sessions_bite_deadline_idx').on(table.biteDeadlineAt),
   ],
 );
 
@@ -617,7 +726,7 @@ export const materials = pgTable(
       .references(() => cultivators.id, { onDelete: 'cascade' })
       .notNull(),
     name: varchar('name', { length: 100 }).notNull(),
-    type: varchar('type', { length: 20 }).notNull(), // herb | ore | monster | other
+    type: varchar('type', { length: 20 }).notNull(), // seed | fish | herb | ore | monster | other
     rank: varchar('rank', { length: 20 }).notNull(), // 凡品 | 下品 | 中品 | 上品 | 极品 | 仙品 | 神品
     element: varchar('element', { length: 10 }),
     description: text('description'),
