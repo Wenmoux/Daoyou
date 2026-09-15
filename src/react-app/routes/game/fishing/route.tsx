@@ -53,6 +53,9 @@ type Snapshot = {
     experienceToNextLevel: number;
     remainingCasts: number;
     dailyLimit: number;
+    fishPoints: number;
+    fishingBuffs: Array<{ type: 'legendary_rate' | 'double_catch'; expiresAt: string }>;
+    merchantAvailableUntil: string | null;
   };
   selectedLocationId: string | null;
   selectedLocationUnlocked: boolean;
@@ -83,6 +86,9 @@ type StrikeResult =
       cultivationExpGained: number;
       attributeReward?: { attribute: string; amount: number };
       newlyUnlockedBaitIds: string[];
+      catchQuantity: number;
+      merchantAvailableUntil: string | null;
+      merchantEncountered: boolean;
     };
 
 type Envelope<T> = { success: boolean; data?: T; error?: string };
@@ -195,8 +201,10 @@ export default function FishingPage() {
       <p>{result.catch.description}</p>
       <p>{result.catch.tier} · {result.catch.element} · {result.catch.weight.toFixed(2)} 斤</p>
       <p className="text-ink-secondary">垂钓经验 +{result.experienceGained}{result.firstDiscovery ? ' · 首次发现' : ''}</p>
+      {result.catchQuantity > 1 ? <p className="text-crimson">鱼运相助，本次获得 {result.catchQuantity} 条同品质鱼获。</p> : null}
       {result.rewardUnlocked ? <p className="text-crimson">品阶奖励：修为 +{result.cultivationExpGained}，{ATTRIBUTE_LABELS[result.attributeReward?.attribute ?? ''] ?? result.attributeReward?.attribute} +{result.attributeReward?.amount}</p> : null}
       {result.newlyUnlockedBaitIds.length ? <p className="text-crimson">新鱼饵解锁：{result.newlyUnlockedBaitIds.join('、')}</p> : null}
+      {result.merchantEncountered ? <div className="border border-crimson/25 p-3"><p className="text-crimson">水雾里泊来一叶商舟，鱼贸商人现身了。</p><Link className="font-medium text-crimson underline" to="/game/fishing/merchant">趁他离开前前往交易 →</Link></div> : null}
     </div>,
     confirmLabel: '收下鱼获', onConfirm: async () => undefined,
   });
@@ -234,7 +242,7 @@ export default function FishingPage() {
     <GameSceneFrame variant="workflow" headerMeta={<div className="flex flex-wrap gap-x-5 text-sm text-ink-secondary"><span>境界：{snapshot.player.realm}</span><span>垂钓 Lv.{snapshot.profile.level}</span><span>今日鱼讯：{snapshot.profile.remainingCasts}/{snapshot.profile.dailyLimit}</span><Link className="text-crimson hover:underline" to="/game/fishing/codex">打开鱼图鉴</Link></div>}>
       {error ? <InkNotice tone="warning">{error}</InkNotice> : null}
       <InkCard padding="lg" className="space-y-5">
-        <div className="flex items-end justify-between gap-3"><div><p className="text-lg font-medium">水面无言，先听鱼讯</p><p className="mt-1 text-sm text-ink-secondary">抛竿后等待浮标下沉，在鱼讯窗口内提竿。</p><div className="mt-2 flex gap-3 text-xs"><Link className="text-crimson hover:underline" to="/game/fishing/merchant">鱼贸商人</Link><Link className="text-crimson hover:underline" to="/game/spirit-pond">洞府灵池</Link></div></div><div className="min-w-48 text-right text-sm text-ink-secondary"><p>经验 {snapshot.profile.experience}</p><div className="mt-1 h-1.5 bg-ink/10"><div className="h-full bg-crimson" style={{ width: `${progress}%` }} /></div></div></div>
+        <div className="flex items-end justify-between gap-3"><div><p className="text-lg font-medium">水面无言，先听鱼讯</p><p className="mt-1 text-sm text-ink-secondary">抛竿后等待浮标下沉，在鱼讯窗口内提竿。</p><div className="mt-2 flex gap-3 text-xs">{snapshot.profile.merchantAvailableUntil && Date.parse(snapshot.profile.merchantAvailableUntil) > Date.now() ? <Link className="font-medium text-crimson hover:underline" to="/game/fishing/merchant">鱼贸商舟已靠岸</Link> : <span className="text-ink-secondary">鱼贸商人尚未现身</span>}<Link className="text-crimson hover:underline" to="/game/spirit-pond">洞府灵池</Link></div></div><div className="min-w-48 text-right text-sm text-ink-secondary"><p>经验 {snapshot.profile.experience}</p><div className="mt-1 h-1.5 bg-ink/10"><div className="h-full bg-crimson" style={{ width: `${progress}%` }} /></div></div></div>
         <FishingScene locationName={session?.locationName ?? location?.name ?? '未选择水域'} environment={session?.environment ?? snapshot.environment} session={session} biting={biting} />
         <div className="sticky top-2 z-10 border border-crimson/35 bg-[#f4eee3]/95 px-4 py-3 shadow-[3px_3px_0_rgba(163,69,50,.18)]">
           <div className="flex items-center justify-between gap-3"><div className="text-sm"><p className="font-medium">{session ? `正在垂钓：${session.locationName}` : location?.name ?? '请从地图选择水域'}</p><p className={biting ? 'font-medium text-crimson' : 'text-ink-secondary'}>{session ? (biting ? '鱼讯出现，立即提竿！' : '浮标尚未下沉，静候鱼讯……') : '选好鱼饵后抛竿。'}</p></div>

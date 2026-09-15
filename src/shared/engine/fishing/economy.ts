@@ -11,22 +11,28 @@ export const FISH_POINT_BY_QUALITY: Record<Quality, number> = {
 };
 
 export const POND_DOMESTICATION_BY_QUALITY: Record<Quality, number> = {
-  凡品: 1, 灵品: 2, 玄品: 5, 真品: 12, 地品: 30, 天品: 70, 仙品: 160, 神品: 400,
+  凡品: 1, 灵品: 2, 玄品: 5, 真品: 12, 地品: 30, 天品: 30, 仙品: 30, 神品: 30,
 };
 
 export const POND_PROBABILITY_STAGES = [
   { threshold: 0, probability: 0 },
-  { threshold: 20, probability: 5 },
-  { threshold: 60, probability: 10 },
-  { threshold: 140, probability: 15 },
-  { threshold: 300, probability: 20 },
-  { threshold: 600, probability: 25 },
-  { threshold: 1000, probability: 30 },
+  { threshold: 100, probability: 5 },
+  { threshold: 260, probability: 10 },
+  { threshold: 560, probability: 15 },
+  { threshold: 1040, probability: 20 },
+  { threshold: 1640, probability: 25 },
+  { threshold: 1940, probability: 30 },
 ] as const;
+
+export const POND_MAX_DOMESTICATION = POND_PROBABILITY_STAGES[POND_PROBABILITY_STAGES.length - 1]!.threshold;
 
 export function pondProbability(domestication: number): number {
   const stage = POND_PROBABILITY_STAGES.slice().reverse().find((item) => domestication >= item.threshold);
   return stage?.probability ?? 0;
+}
+
+export function nextPondStage(domestication: number) {
+  return POND_PROBABILITY_STAGES.find((item) => item.threshold > domestication) ?? null;
 }
 
 export function adjacentUpgradeCost(quality: Quality): number | null {
@@ -47,6 +53,11 @@ export const FISHING_BUFF_COSTS = {
 export const FISH_POINT_REWARDS = {
   'spirit-worm-pack': { name: '灵蚯蚓鱼饵包', baitId: 'spirit-worm', cost: 40, quantity: 10 },
   'moonlight-grain-pack': { name: '月华米鱼饵包', baitId: 'moonlight-grain', cost: 80, quantity: 10 },
+} as const;
+
+export const FISH_DIRECT_ITEM_REWARDS = {
+  'spirit-worm-pack': FISH_POINT_REWARDS['spirit-worm-pack'],
+  'moonlight-grain-pack': FISH_POINT_REWARDS['moonlight-grain-pack'],
 } as const;
 
 

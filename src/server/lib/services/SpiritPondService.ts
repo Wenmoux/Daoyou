@@ -6,13 +6,13 @@
  */
 import { getExecutor, type DbTransaction } from '@server/lib/drizzle/db';
 import { cultivators, materials, spiritPondSlots, spiritPondVisits, spiritPonds } from '@server/lib/drizzle/schema';
-import { areFriends } from '@server/lib/services/FriendService';
+import { areFriends, listFriends } from '@server/lib/services/FriendService';
 import { playerCommandExecutor } from '@server/lib/services/CommandExecutors';
 import { updateSpiritStones } from '@server/lib/services/cultivator/CultivatorStateRepository';
-import { POND_DOMESTICATION_BY_QUALITY, pondProbability } from '@shared/engine/fishing';
+import { POND_DOMESTICATION_BY_QUALITY, POND_MAX_DOMESTICATION, nextPondStage, pondProbability } from '@shared/engine/fishing';
 import { QUALITY_ORDER, QUALITY_VALUES, type Quality } from '@shared/types/constants';
 import { FISH_SPECIES_BY_ID } from '@shared/engine/fishing/catalog';
-import { and, asc, desc, eq, gt, lte, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
 import { randomInt } from 'node:crypto';
 
 export type SpiritPondActor = { userId: string; cultivatorId: string };
@@ -54,11 +54,15 @@ async function loadOwner(actor: SpiritPondActor, tx?: DbTransaction) {
   if (!row) throw new SpiritPondServiceError('当前没有可用的活跃角色', 404);
 }
 
-async function ensurePond(cultivatorId: string, tx?: DbTransaction) {
+export async function ensureSpiritPond(cultivatorId: string, tx?: DbTransaction) {
   const q = getExecutor(tx);
   const [existing] = await q.select().from(spiritPonds).where(eq(spiritPonds.ownerCultivatorId, cultivatorId)).limit(1);
   if (existing) return existing;
-  const [created] = await q.insert(spiritPonds).values({ ownerCultivatorId: cultivatorId }).returning();
+  const [created] = await q.insert(spiritPonds).values({ ownerCultivatorId: cultivatorId }).onConflictDoNothing({ target: spiritPonds.ownerCultivatorId }).returning();
+  if (!created) {
+    const [raced] = await q.select().from(spiritPonds).where(eq(spiritPonds.ownerCultivatorId, cultivatorId)).limit(1);
+    if (raced) return raced;
+  }
   if (!created) throw new SpiritPondServiceError('灵池初始化失败');
   return created;
 }
@@ -73,18 +77,50 @@ async function consumeFishQuality(tx: DbTransaction, actor: SpiritPondActor, spe
 
 export async function getSpiritPondSnapshot(actor: SpiritPondActor, ownerCultivatorId = actor.cultivatorId) {
   await loadOwner(actor);
-  const pond = await ensurePond(ownerCultivatorId);
-  if (ownerCultivatorId !== actor.cultivatorId) {
-    if (pond.accessMode === 'private') throw new SpiritPondServiceError('pond is private', 403);
-    if (!(await areFriends(actor.cultivatorId, ownerCultivatorId))) throw new SpiritPondServiceError('friends only', 403);
-  }
+  const pond = ownerCultivatorId === actor.cultivatorId
+    ? await ensureSpiritPond(ownerCultivatorId)
+    : await (async () => {
+        if (!(await areFriends(actor.cultivatorId, ownerCultivatorId))) {
+          throw new SpiritPondServiceError('只有好友才能查看这座灵池', 403);
+        }
+        const [friendPond] = await getExecutor().select().from(spiritPonds).where(eq(spiritPonds.ownerCultivatorId, ownerCultivatorId)).limit(1);
+        if (!friendPond || friendPond.accessMode === 'private') {
+          throw new SpiritPondServiceError('这座灵池尚未开放', 403);
+        }
+        return friendPond;
+      })();
   const slots = await getExecutor().select().from(spiritPondSlots).where(eq(spiritPondSlots.pondId, pond.id)).orderBy(asc(spiritPondSlots.slot));
   const [owner] = await getExecutor().select({ name: cultivators.name }).from(cultivators).where(eq(cultivators.id, ownerCultivatorId)).limit(1);
   const fishRows = ownerCultivatorId === actor.cultivatorId
     ? await getExecutor().select().from(materials).where(and(eq(materials.cultivatorId, actor.cultivatorId), eq(materials.type, 'fish')))
     : [];
   const inventory = fishRows.map((row) => ({ speciesId: (row.details as { speciesId?: unknown } | null)?.speciesId, speciesName: row.name, quality: row.rank, quantity: row.quantity })).filter((item): item is { speciesId: string; speciesName: string; quality: string; quantity: number } => typeof item.speciesId === 'string');
-  return { pond: { id: pond.id, ownerCultivatorId, isOwner: ownerCultivatorId === actor.cultivatorId, ownerName: owner?.name ?? '道友', accessMode: pond.accessMode, entryFee: pond.entryFee, nextBreedAt: pond.nextBreedAt.toISOString() }, slots: slots.map((slot) => ({ ...slot, probability: pondProbability(slot.domestication), speciesName: FISH_SPECIES_BY_ID[slot.speciesId]?.name ?? slot.speciesId })), inventory };
+  return { pond: { id: pond.id, ownerCultivatorId, isOwner: ownerCultivatorId === actor.cultivatorId, ownerName: owner?.name ?? '道友', accessMode: pond.accessMode, entryFee: pond.entryFee, nextBreedAt: pond.nextBreedAt.toISOString() }, slots: slots.map((slot) => ({ ...slot, probability: pondProbability(slot.domestication), nextStage: nextPondStage(slot.domestication), speciesName: FISH_SPECIES_BY_ID[slot.speciesId]?.name ?? slot.speciesId })), inventory };
+}
+
+export async function listFriendSpiritPonds(actor: SpiritPondActor) {
+  await loadOwner(actor);
+  const friends = await listFriends(actor.cultivatorId);
+  if (!friends.length) return [];
+  const ponds = await getExecutor()
+    .select({
+      ownerCultivatorId: spiritPonds.ownerCultivatorId,
+      accessMode: spiritPonds.accessMode,
+      entryFee: spiritPonds.entryFee,
+    })
+    .from(spiritPonds)
+    .where(inArray(spiritPonds.ownerCultivatorId, friends.map((friend) => friend.id)));
+  const byOwner = new Map(ponds.map((pond) => [pond.ownerCultivatorId, pond]));
+  return friends.flatMap((friend) => {
+    const pond = byOwner.get(friend.id);
+    if (!pond || pond.accessMode === 'private') return [];
+    return [{
+      ownerCultivatorId: friend.id,
+      ownerName: friend.name,
+      accessMode: pond.accessMode,
+      entryFee: pond.accessMode === 'friends_ticket' ? pond.entryFee : 0,
+    }];
+  });
 }
 
 export async function feedSpiritPond(actor: SpiritPondActor, input: { slot: number; speciesId: string; quality: string; quantity: number; requestId: string }) {
@@ -93,14 +129,14 @@ export async function feedSpiritPond(actor: SpiritPondActor, input: { slot: numb
   if (!species || !contribution) throw new SpiritPondServiceError('鱼种或品质不存在', 404);
   return playerCommandExecutor.executeWithLock({ userId: actor.userId, cultivatorId: actor.cultivatorId, source: 'spirit_pond_feed', requestId: input.requestId, idempotency: { key: input.requestId, fingerprint: JSON.stringify(input) }, command: async (tx) => {
     await loadOwner(actor, tx);
-    const pond = await ensurePond(actor.cultivatorId, tx);
+    const pond = await ensureSpiritPond(actor.cultivatorId, tx);
     if (input.slot < 1 || input.slot > 2) throw new SpiritPondServiceError('only two pond slots');
     const [same] = await tx.select().from(spiritPondSlots).where(and(eq(spiritPondSlots.pondId, pond.id), eq(spiritPondSlots.speciesId, species.id))).limit(1);
     const [slot] = await tx.select().from(spiritPondSlots).where(and(eq(spiritPondSlots.pondId, pond.id), eq(spiritPondSlots.slot, input.slot))).limit(1);
     if (slot && slot.speciesId !== species.id) throw new SpiritPondServiceError('该喂养槽已经绑定其他鱼种', 409);
     if (same && same.slot !== input.slot) throw new SpiritPondServiceError('同一种鱼只能占用一个喂养槽', 409);
     await consumeFishQuality(tx, actor, species.id, input.quality, input.quantity);
-    const domestication = Math.min(1000, (slot?.domestication ?? 0) + contribution * input.quantity);
+    const domestication = Math.min(POND_MAX_DOMESTICATION, (slot?.domestication ?? 0) + contribution * input.quantity);
     const fishQualityCounts = addQualityCounts(slot?.fishQualityCounts ?? {}, input.quality, input.quantity);
     if (slot) await tx.update(spiritPondSlots).set({ domestication, fishCount: sql`${spiritPondSlots.fishCount} + ${input.quantity}`, fishQualityCounts }).where(eq(spiritPondSlots.id, slot.id));
     else await tx.insert(spiritPondSlots).values({ pondId: pond.id, slot: input.slot, speciesId: species.id, domestication, fishCount: input.quantity, fishQualityCounts });
@@ -110,17 +146,28 @@ export async function feedSpiritPond(actor: SpiritPondActor, input: { slot: numb
 
 export async function breedSpiritPond(actor: SpiritPondActor, requestId: string) {
   return playerCommandExecutor.executeWithLock({ userId: actor.userId, cultivatorId: actor.cultivatorId, source: 'spirit_pond_breed', requestId, idempotency: { key: requestId, fingerprint: requestId }, command: async (tx) => {
-    await loadOwner(actor, tx); const pond = await ensurePond(actor.cultivatorId, tx); const now = new Date();
+    await loadOwner(actor, tx); const pond = await ensureSpiritPond(actor.cultivatorId, tx); const now = new Date();
     if (pond.nextBreedAt > now) throw new SpiritPondServiceError('breeding cooldown', 409);
     const slots = await tx.select().from(spiritPondSlots).where(eq(spiritPondSlots.pondId, pond.id));
     const produced = slots.map((slot) => {
       const mature = Math.min(slot.fryCount, Math.max(1, Math.floor(slot.fryCount / 5)));
       const matured = transferQualityCounts(slot.fryQualityCounts ?? {}, slot.fishQualityCounts ?? {}, mature);
+      const domesticationGain = QUALITY_VALUES.reduce((sum, quality) => {
+        const maturedCount = (matured.target[quality] ?? 0) - (slot.fishQualityCounts?.[quality] ?? 0);
+        return sum + Math.max(0, maturedCount) * POND_DOMESTICATION_BY_QUALITY[quality];
+      }, 0);
+      const domestication = Math.min(POND_MAX_DOMESTICATION, slot.domestication + domesticationGain);
+      const parentCount = slot.fishCount + mature;
+      const quantity = parentCount > 0
+        ? Math.min(30, Math.max(1, Math.floor(parentCount / 10) + Math.floor(domestication / 250)))
+        : 0;
       let fryQualityCounts = matured.source;
-      for (let index = 0; index < Math.min(30, Math.max(1, Math.floor(slot.fishCount / 10) + Math.floor(slot.domestication / 250))); index += 1) fryQualityCounts = addQualityCounts(fryQualityCounts, pickQuality(matured.target), 1);
-      return { slotId: slot.id, quantity: Math.min(30, Math.max(1, Math.floor(slot.fishCount / 10) + Math.floor(slot.domestication / 250))), mature, fishQualityCounts: matured.target, fryQualityCounts };
+      for (let index = 0; index < quantity; index += 1) {
+        fryQualityCounts = addQualityCounts(fryQualityCounts, pickQuality(matured.target), 1);
+      }
+      return { slotId: slot.id, quantity, mature, domestication, fishQualityCounts: matured.target, fryQualityCounts };
     });
-    for (const item of produced) await tx.update(spiritPondSlots).set({ fishCount: sql`${spiritPondSlots.fishCount} + ${item.mature}`, fryCount: sql`${spiritPondSlots.fryCount} - ${item.mature} + ${item.quantity}`, fishQualityCounts: item.fishQualityCounts, fryQualityCounts: item.fryQualityCounts }).where(eq(spiritPondSlots.id, item.slotId));
+    for (const item of produced) await tx.update(spiritPondSlots).set({ fishCount: sql`${spiritPondSlots.fishCount} + ${item.mature}`, fryCount: sql`${spiritPondSlots.fryCount} - ${item.mature} + ${item.quantity}`, domestication: item.domestication, fishQualityCounts: item.fishQualityCounts, fryQualityCounts: item.fryQualityCounts }).where(eq(spiritPondSlots.id, item.slotId));
     const next = new Date(now.getTime() + 6 * 60 * 60 * 1000);
     await tx.update(spiritPonds).set({ lastBreedAt: now, nextBreedAt: next }).where(eq(spiritPonds.id, pond.id));
     return { result: { message: produced.length ? 'breeding complete' : 'no brood fish', produced }, resourceChanges: [{ resourceTopic: 'player.progress' as const, eventType: 'spirit-pond.breed', operation: 'invalidate' as const }] };
@@ -132,8 +179,8 @@ export async function transferSpiritPondFry(actor: SpiritPondActor, input: { tar
     await loadOwner(actor, tx);
     if (input.targetCultivatorId === actor.cultivatorId) throw new SpiritPondServiceError('不能转给自己', 409);
     if (!(await areFriends(actor.cultivatorId, input.targetCultivatorId, tx))) throw new SpiritPondServiceError('只能转给好友', 403);
-    const source = await ensurePond(actor.cultivatorId, tx);
-    const target = await ensurePond(input.targetCultivatorId, tx);
+    const source = await ensureSpiritPond(actor.cultivatorId, tx);
+    const target = await ensureSpiritPond(input.targetCultivatorId, tx);
     const [sourceSlot] = await tx.select().from(spiritPondSlots).where(and(eq(spiritPondSlots.pondId, source.id), eq(spiritPondSlots.slot, input.slot))).limit(1);
     if (!sourceSlot || sourceSlot.fryCount < input.quantity) throw new SpiritPondServiceError('鱼苗数量不足', 409);
     const [targetSlot] = await tx.select().from(spiritPondSlots).where(and(eq(spiritPondSlots.pondId, target.id), eq(spiritPondSlots.speciesId, sourceSlot.speciesId))).limit(1);
@@ -147,17 +194,28 @@ export async function transferSpiritPondFry(actor: SpiritPondActor, input: { tar
       await tx.insert(spiritPondSlots).values({ pondId: target.id, slot: freeSlot, speciesId: sourceSlot.speciesId, fryCount: input.quantity, fryQualityCounts: transferred.target });
     }
     await tx.update(spiritPondSlots).set({ fryCount: sql`${spiritPondSlots.fryCount} - ${input.quantity}`, fryQualityCounts: transferred.source }).where(eq(spiritPondSlots.id, sourceSlot.id));
-    return { result: { message: '鱼苗转移成功', quantity: input.quantity, speciesId: sourceSlot.speciesId }, resourceChanges: [{ resourceTopic: 'player.progress' as const, eventType: 'spirit-pond.fry-transfer', operation: 'invalidate' as const }] };
+    return { result: { message: '鱼苗转移成功', quantity: input.quantity, speciesId: sourceSlot.speciesId }, resourceChanges: [
+      { resourceTopic: 'player.progress' as const, eventType: 'spirit-pond.fry-transfer', operation: 'invalidate' as const },
+      { scope: { kind: 'cultivator' as const, id: input.targetCultivatorId }, resourceTopic: 'player.progress' as const, eventType: 'spirit-pond.fry-received', operation: 'invalidate' as const },
+    ] };
   } });
 }
 
 export async function updateSpiritPondAccess(actor: SpiritPondActor, input: { accessMode: 'private' | 'friends_free' | 'friends_ticket'; entryFee: number; requestId: string }) {
-  return playerCommandExecutor.executeWithLock({ userId: actor.userId, cultivatorId: actor.cultivatorId, source: 'spirit_pond_access', requestId: input.requestId, idempotency: { key: input.requestId, fingerprint: JSON.stringify(input) }, command: async (tx) => { await loadOwner(actor, tx); const pond = await ensurePond(actor.cultivatorId, tx); await tx.update(spiritPonds).set({ accessMode: input.accessMode, entryFee: input.accessMode === 'friends_ticket' ? input.entryFee : 0 }).where(eq(spiritPonds.id, pond.id)); return { result: { message: 'access updated' }, resourceChanges: [{ resourceTopic: 'player.progress' as const, eventType: 'spirit-pond.access', operation: 'invalidate' as const }] }; } });
+  return playerCommandExecutor.executeWithLock({ userId: actor.userId, cultivatorId: actor.cultivatorId, source: 'spirit_pond_access', requestId: input.requestId, idempotency: { key: input.requestId, fingerprint: JSON.stringify(input) }, command: async (tx) => { await loadOwner(actor, tx); const pond = await ensureSpiritPond(actor.cultivatorId, tx); await tx.update(spiritPonds).set({ accessMode: input.accessMode, entryFee: input.accessMode === 'friends_ticket' ? input.entryFee : 0 }).where(eq(spiritPonds.id, pond.id)); return { result: { message: 'access updated' }, resourceChanges: [{ resourceTopic: 'player.progress' as const, eventType: 'spirit-pond.access', operation: 'invalidate' as const }] }; } });
 }
 
 export async function visitSpiritPond(actor: SpiritPondActor, ownerCultivatorId: string, requestId: string) {
-  const committed = await playerCommandExecutor.executeWithLock({ userId: actor.userId, cultivatorId: actor.cultivatorId, source: 'spirit_pond_visit', requestId, idempotency: { key: requestId, fingerprint: `${ownerCultivatorId}:${requestId}` }, command: async (tx) => {
-    await loadOwner(actor, tx); const pond = await ensurePond(ownerCultivatorId, tx); const now = new Date();
+  const committed = await playerCommandExecutor.executeWithLock({ userId: actor.userId, cultivatorId: actor.cultivatorId, source: 'spirit_pond_visit', requestId, idempotency: { key: requestId, fingerprint: `${ownerCultivatorId}:${requestId}` }, allowEmpty: true, command: async (tx) => {
+    await loadOwner(actor, tx);
+    const pond = ownerCultivatorId === actor.cultivatorId
+      ? await ensureSpiritPond(ownerCultivatorId, tx)
+      : await (async () => {
+          const [friendPond] = await tx.select().from(spiritPonds).where(eq(spiritPonds.ownerCultivatorId, ownerCultivatorId)).limit(1);
+          if (!friendPond) throw new SpiritPondServiceError('好友还没有开辟灵池', 404);
+          return friendPond;
+        })();
+    const now = new Date();
     const [existingVisit] = await tx.select().from(spiritPondVisits).where(and(eq(spiritPondVisits.pondId, pond.id), eq(spiritPondVisits.visitorCultivatorId, actor.cultivatorId), gt(spiritPondVisits.validUntil, now))).orderBy(desc(spiritPondVisits.validUntil)).limit(1);
     if (existingVisit) return { result: { visitId: existingVisit.id, pondId: pond.id, validUntil: existingVisit.validUntil.toISOString(), fee: 0 }, resourceChanges: [] };
     let fee = 0; let ownerUserId: string | null = null;
@@ -169,7 +227,10 @@ export async function visitSpiritPond(actor: SpiritPondActor, ownerCultivatorId:
       if (fee > 0) { const [owner] = await tx.select({ userId: cultivators.userId }).from(cultivators).where(eq(cultivators.id, ownerCultivatorId)).limit(1); ownerUserId = owner?.userId ?? null; if (!ownerUserId) throw new SpiritPondServiceError('owner not found', 404); await updateSpiritStones(actor.userId, actor.cultivatorId, -fee, tx); await updateSpiritStones(ownerUserId, ownerCultivatorId, fee, tx); }
     }
     const validUntil = new Date(now.getTime() + 60 * 60 * 1000); const [visit] = await tx.insert(spiritPondVisits).values({ pondId: pond.id, visitorCultivatorId: actor.cultivatorId, validUntil, requestId }).onConflictDoNothing().returning();
-    return { result: { visitId: visit?.id ?? null, pondId: pond.id, validUntil: validUntil.toISOString(), fee }, resourceChanges: [{ resourceTopic: 'player.profile' as const, eventType: 'spirit-pond.visit', operation: 'invalidate' as const }] };
+    return { result: { visitId: visit?.id ?? null, pondId: pond.id, validUntil: validUntil.toISOString(), fee }, resourceChanges: [
+      { resourceTopic: 'player.profile' as const, eventType: 'spirit-pond.visit', operation: 'invalidate' as const },
+      ...(fee > 0 ? [{ scope: { kind: 'cultivator' as const, id: ownerCultivatorId }, resourceTopic: 'player.profile' as const, eventType: 'spirit-pond.entry-fee', operation: 'invalidate' as const }] : []),
+    ] };
   } });
   return committed.result;
 }

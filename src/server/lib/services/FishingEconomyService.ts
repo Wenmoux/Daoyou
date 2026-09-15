@@ -9,7 +9,7 @@ import { fishingProfiles, materials } from '@server/lib/drizzle/schema';
 import { playerCommandExecutor } from '@server/lib/services/CommandExecutors';
 import { updateSpiritStones } from '@server/lib/services/cultivator/CultivatorStateRepository';
 import { addMaterialStackToInventory } from '@server/lib/services/materialInventory';
-import { FISH_SPECIES_BY_ID, FISHING_BUFF_COSTS, FISH_POINT_REWARDS, adjacentUpgradeCost, fishPointValue } from '@shared/engine/fishing';
+import { FISH_DIRECT_ITEM_REWARDS, FISH_SPECIES_BY_ID, FISHING_BUFF_COSTS, FISH_POINT_REWARDS, adjacentUpgradeCost, fishPointValue } from '@shared/engine/fishing';
 import { QUALITY_ORDER, QUALITY_VALUES, type Quality } from '@shared/types/constants';
 import { and, eq, sql } from 'drizzle-orm';
 
@@ -39,6 +39,9 @@ export async function getFishingEconomySnapshot(actor: FishingEconomyActor) {
     const nextQuality = QUALITY_VALUES[QUALITY_ORDER[stack.quality] + 1];
     offers.push({ id: `points:${stack.speciesId}:${stack.quality}`, kind: 'points', speciesId: stack.speciesId, speciesName: stack.speciesName, quality: stack.quality, inputQuantity: 1, output: { points } });
     offers.push({ id: `stones:${stack.speciesId}:${stack.quality}`, kind: 'stones', speciesId: stack.speciesId, speciesName: stack.speciesName, quality: stack.quality, inputQuantity: 1, output: { spiritStones: Math.max(2, points * 3) } });
+    for (const [itemId, item] of Object.entries(FISH_DIRECT_ITEM_REWARDS)) {
+      offers.push({ id: `fish_item:${stack.speciesId}:${stack.quality}:${itemId}`, kind: 'fish_item', speciesId: stack.speciesId, speciesName: stack.speciesName, quality: stack.quality, inputQuantity: Math.max(1, Math.ceil(item.cost / points)), output: { item: item.name, quantity: item.quantity } });
+    }
     if (cost && nextQuality) offers.push({ id: `upgrade:${stack.speciesId}:${stack.quality}`, kind: 'upgrade', speciesId: stack.speciesId, speciesName: stack.speciesName, quality: stack.quality, inputQuantity: cost, output: { quality: nextQuality } });
     if (QUALITY_ORDER[stack.quality] >= 1) offers.push({ id: `mission_legendary:${stack.speciesId}:${stack.quality}`, kind: 'mission_legendary', speciesId: stack.speciesId, speciesName: stack.speciesName, quality: stack.quality, inputQuantity: 8, output: { buff: 'legendary_rate', durationMinutes: 60 } });
     if (QUALITY_ORDER[stack.quality] >= 2) offers.push({ id: `mission_double:${stack.speciesId}:${stack.quality}`, kind: 'mission_double', speciesId: stack.speciesId, speciesName: stack.speciesName, quality: stack.quality, inputQuantity: 12, output: { buff: 'double_catch', durationMinutes: 60 } });
@@ -65,7 +68,24 @@ async function consumeExactFish(tx: DbTransaction, actor: FishingEconomyActor, s
 }
 
 export async function tradeFishingOffer(actor: FishingEconomyActor, input: { offerId: string; quantity: number; requestId: string }) {
-  const [kind, speciesId, qualityValue] = input.offerId.split(':');
+  const [kind, speciesId, qualityValue, itemId] = input.offerId.split(':');
+  if (kind === 'fish_item') {
+    const quality = qualityValue as Quality;
+    const reward = FISH_DIRECT_ITEM_REWARDS[itemId as keyof typeof FISH_DIRECT_ITEM_REWARDS];
+    const species = FISH_SPECIES_BY_ID[speciesId ?? ''];
+    if (!reward || !species || !QUALITY_VALUES.includes(quality) || input.quantity !== 1) throw new FishingEconomyError('offer not found', 404);
+    const amount = Math.max(1, Math.ceil(reward.cost / fishPointValue(quality)));
+    return playerCommandExecutor.executeWithLock<unknown>({ userId: actor.userId, cultivatorId: actor.cultivatorId, source: 'fishing_economy_fish_item', requestId: input.requestId, idempotency: { key: input.requestId, fingerprint: JSON.stringify(input) }, command: async (tx) => {
+      await requireMerchant(tx, actor);
+      await consumeExactFish(tx, actor, species.id, quality, amount);
+      const [profile] = await tx.select().from(fishingProfiles).where(eq(fishingProfiles.cultivatorId, actor.cultivatorId)).limit(1);
+      if (!profile) throw new FishingEconomyError('垂钓档案不存在', 404);
+      const baitStock = { ...(profile.baitStock ?? {}) };
+      baitStock[reward.baitId] = (baitStock[reward.baitId] ?? 0) + reward.quantity;
+      await tx.update(fishingProfiles).set({ baitStock }).where(eq(fishingProfiles.cultivatorId, actor.cultivatorId));
+      return { result: { message: `鱼获兑换${reward.name}`, item: reward.name, quantity: reward.quantity }, resourceChanges: [{ resourceTopic: 'inventory.materials' as const, eventType: 'inventory.fishing.fish-item', operation: 'invalidate' as const }, { resourceTopic: 'player.progress' as const, eventType: 'fishing.economy.fish-item', operation: 'invalidate' as const }] };
+    } });
+  }
   if (kind === 'item') {
     const reward = FISH_POINT_REWARDS[speciesId as keyof typeof FISH_POINT_REWARDS];
     if (!reward || input.quantity !== 1) throw new FishingEconomyError('offer not found', 404);

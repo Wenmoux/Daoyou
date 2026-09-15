@@ -1,3 +1,9 @@
+/**
+ * [INPUT]: 垂钓纯规则、环境目录、鱼贸经济与品质常量
+ * [OUTPUT]: 验证地图解锁、鱼讯窗口、鱼获品质、成长、鱼贸与灵池概率不回归
+ * [POS]: 垂钓领域的跨规则回归网；不触碰数据库或浏览器状态
+ * [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
+ */
 import { describe, expect, it } from 'vitest';
 import {
   experienceForFishingLevel,
@@ -11,7 +17,7 @@ import { getFishingBait, resolveFishingEnvironment } from './environment';
 import { FISH_SPECIES } from './catalog';
 import { DAILY_FISHING_CAST_LIMIT, fishingRewardKey, resolveFishingTierReward } from './rewards';
 import { QUALITY_ORDER, QUALITY_VALUES } from '@shared/types/constants';
-import { FISHING_BUFF_COSTS, FISH_POINT_REWARDS, adjacentUpgradeCost, pondProbability, selectPondTarget } from './economy';
+import { FISHING_BUFF_COSTS, FISH_POINT_REWARDS, POND_MAX_DOMESTICATION, adjacentUpgradeCost, nextPondStage, pondProbability, selectPondTarget } from './economy';
 
 describe('fishing rules', () => {
   it('raises quality when a positive quality bonus is applied', () => {
@@ -32,7 +38,18 @@ describe('fishing rules', () => {
 
   it('keeps fish economy thresholds deterministic', () => {
     expect(pondProbability(0)).toBe(0);
-    expect(pondProbability(1000)).toBe(30);
+    expect(pondProbability(99)).toBe(0);
+    expect(pondProbability(100)).toBe(5);
+    expect(pondProbability(260)).toBe(10);
+    expect(pondProbability(560)).toBe(15);
+    expect(pondProbability(1040)).toBe(20);
+    expect(pondProbability(1640)).toBe(25);
+    expect(pondProbability(POND_MAX_DOMESTICATION)).toBe(30);
+    expect(nextPondStage(1640)).toEqual({ threshold: 1940, probability: 30 });
+    expect(nextPondStage(POND_MAX_DOMESTICATION)).toBeNull();
+    expect(
+      100 * 1 + 80 * 2 + 60 * 5 + 40 * 12 + 20 * 30 + 10 * 30,
+    ).toBe(POND_MAX_DOMESTICATION);
     expect(adjacentUpgradeCost('凡品')).toBe(8);
     expect(adjacentUpgradeCost('神品')).toBeNull();
     expect(FISHING_BUFF_COSTS.legendary_rate).toBe(120);

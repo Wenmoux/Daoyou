@@ -68,6 +68,9 @@ type FishingStrikeResult =
       attributeReward?: { attribute: string; amount: number };
       newlyUnlockedBaitIds: string[];
       dailyCastsRemaining: number;
+      catchQuantity: number;
+      merchantAvailableUntil: string | null;
+      merchantEncountered: boolean;
     };
 
 async function loadActorCultivator(actor: FishingActor, q: DbExecutor = getExecutor()) {
@@ -610,7 +613,8 @@ export async function strikeFishingSession(
         await tx.update(cultivators).set({ cultivation_progress: stripExpCapForStorage(progress), [reward.attribute]: sql`${cultivators[reward.attribute]} + ${reward.attributeGain}` }).where(eq(cultivators.id, actor.cultivatorId));
         await tx.update(fishingProfiles).set({ unlockedRewardKeys: [...unlockedRewardKeys, reward.rewardKey] }).where(eq(fishingProfiles.cultivatorId, actor.cultivatorId));
       }
-      const merchantAvailableUntil = profile.merchantAvailableUntil && profile.merchantAvailableUntil > now
+      const merchantWasAvailable = Boolean(profile.merchantAvailableUntil && profile.merchantAvailableUntil > now);
+      const merchantAvailableUntil = merchantWasAvailable
         ? profile.merchantAvailableUntil
         : randomInt(0, 100) < 12
           ? new Date(now.getTime() + 30 * 60 * 1000)
@@ -621,7 +625,7 @@ export async function strikeFishingSession(
       const previousBaitIds = new Set(profile.unlockedBaitIds ?? []);
       const profileWithBaits = await syncUnlockedBaits(profileAfterCatch, tx);
       const newlyUnlockedBaitIds = profileWithBaits.unlockedBaitIds.filter((baitId) => !previousBaitIds.has(baitId));
-      const result = { outcome: 'hooked' as const, catch: caught, catchQuantity, experienceGained, firstDiscovery, rewardUnlocked, cultivationExpGained: rewardUnlocked ? reward.cultivationExp : 0, attributeReward: rewardUnlocked ? { attribute: reward.attribute, amount: reward.attributeGain } : undefined, newlyUnlockedBaitIds, dailyCastsRemaining: Math.max(0, DAILY_FISHING_CAST_LIMIT - profileAfterCatch.dailyCasts), merchantAvailableUntil: merchantAvailableUntil?.toISOString() ?? null };
+      const result = { outcome: 'hooked' as const, catch: caught, catchQuantity, experienceGained, firstDiscovery, rewardUnlocked, cultivationExpGained: rewardUnlocked ? reward.cultivationExp : 0, attributeReward: rewardUnlocked ? { attribute: reward.attribute, amount: reward.attributeGain } : undefined, newlyUnlockedBaitIds, dailyCastsRemaining: Math.max(0, DAILY_FISHING_CAST_LIMIT - profileAfterCatch.dailyCasts), merchantAvailableUntil: merchantAvailableUntil?.toISOString() ?? null, merchantEncountered: !merchantWasAvailable && Boolean(merchantAvailableUntil) };
       await tx.update(fishingSessions).set({ state: 'landed', resolvedAt: now, result }).where(eq(fishingSessions.id, session.id));
       return {
         result,

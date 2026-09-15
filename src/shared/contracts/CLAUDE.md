@@ -7,6 +7,6 @@
 
 fishing.ts: 垂钓会话、抛竿和提竿请求契约。
 fishingEconomy.ts: 鱼贸兑换与限时垂钓增益请求契约。
-spiritPond.ts: 灵池喂养、繁殖、访问设置与访问票据请求契约。
+spiritPond.ts: 灵池喂养、繁殖、访问设置、访问票据与鱼苗集市请求契约。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

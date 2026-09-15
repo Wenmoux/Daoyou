@@ -322,6 +322,29 @@ export const spiritPondVisits = pgTable(
   ],
 );
 
+// 鱼苗挂牌进入托管后与灵池库存分离，避免卖家在成交前重复使用同一批鱼苗。
+export const spiritPondFryListings = pgTable(
+  'wanjiedaoyou_spirit_pond_fry_listings',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    sellerCultivatorId: uuid('seller_cultivator_id')
+      .references(() => cultivators.id, { onDelete: 'cascade' })
+      .notNull(),
+    speciesId: varchar('species_id', { length: 80 }).notNull(),
+    quality: varchar('quality', { length: 16 }).notNull(),
+    quantity: integer('quantity').notNull(),
+    remainingQuantity: integer('remaining_quantity').notNull(),
+    unitPrice: integer('unit_price').notNull(),
+    status: varchar('status', { length: 16 }).notNull().default('active'),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    index('spirit_pond_fry_listings_active_idx').on(table.status, table.createdAt),
+    index('spirit_pond_fry_listings_seller_idx').on(table.sellerCultivatorId, table.status),
+  ],
+);
+
 export type AccountDeletionStatus = 'pending' | 'completed';
 
 // 账号注销留档：不关联 Better Auth 或角色外键，确保账号删除后仍可用于后续清理。
