@@ -9,7 +9,7 @@ import { cultivators, materials, spiritPondSlots, spiritPondVisits, spiritPonds 
 import { areFriends, listFriends } from '@server/lib/services/FriendService';
 import { playerCommandExecutor } from '@server/lib/services/CommandExecutors';
 import { updateSpiritStones } from '@server/lib/services/cultivator/CultivatorStateRepository';
-import { POND_DOMESTICATION_BY_QUALITY, POND_MAX_DOMESTICATION, nextPondStage, pondProbability } from '@shared/engine/fishing';
+import { POND_DOMESTICATION_BY_QUALITY, POND_MAX_DOMESTICATION, nextPondStage, normalizeFishQualityCounts, pondProbability } from '@shared/engine/fishing';
 import { QUALITY_ORDER, QUALITY_VALUES, type Quality } from '@shared/types/constants';
 import { FISH_SPECIES_BY_ID } from '@shared/engine/fishing/catalog';
 import { and, asc, desc, eq, gt, inArray, lte, sql } from 'drizzle-orm';
@@ -95,7 +95,7 @@ export async function getSpiritPondSnapshot(actor: SpiritPondActor, ownerCultiva
     ? await getExecutor().select().from(materials).where(and(eq(materials.cultivatorId, actor.cultivatorId), eq(materials.type, 'fish')))
     : [];
   const inventory = fishRows.map((row) => ({ speciesId: (row.details as { speciesId?: unknown } | null)?.speciesId, speciesName: row.name, quality: row.rank, quantity: row.quantity })).filter((item): item is { speciesId: string; speciesName: string; quality: string; quantity: number } => typeof item.speciesId === 'string');
-  return { pond: { id: pond.id, ownerCultivatorId, isOwner: ownerCultivatorId === actor.cultivatorId, ownerName: owner?.name ?? '道友', accessMode: pond.accessMode, entryFee: pond.entryFee, nextBreedAt: pond.nextBreedAt.toISOString() }, slots: slots.map((slot) => ({ ...slot, probability: pondProbability(slot.domestication), nextStage: nextPondStage(slot.domestication), speciesName: FISH_SPECIES_BY_ID[slot.speciesId]?.name ?? slot.speciesId })), inventory };
+  return { pond: { id: pond.id, ownerCultivatorId, isOwner: ownerCultivatorId === actor.cultivatorId, ownerName: owner?.name ?? '道友', accessMode: pond.accessMode, entryFee: pond.entryFee, nextBreedAt: pond.nextBreedAt.toISOString() }, slots: slots.map((slot) => ({ ...slot, fishQualityCounts: normalizeFishQualityCounts(slot.fishQualityCounts ?? {}, slot.fishCount), fryQualityCounts: normalizeFishQualityCounts(slot.fryQualityCounts ?? {}, slot.fryCount), probability: pondProbability(slot.domestication), nextStage: nextPondStage(slot.domestication), speciesName: FISH_SPECIES_BY_ID[slot.speciesId]?.name ?? slot.speciesId })), inventory };
 }
 
 export async function listFriendSpiritPonds(actor: SpiritPondActor) {
@@ -150,10 +150,12 @@ export async function breedSpiritPond(actor: SpiritPondActor, requestId: string)
     if (pond.nextBreedAt > now) throw new SpiritPondServiceError('breeding cooldown', 409);
     const slots = await tx.select().from(spiritPondSlots).where(eq(spiritPondSlots.pondId, pond.id));
     const produced = slots.map((slot) => {
+      const fishQualityCounts = normalizeFishQualityCounts(slot.fishQualityCounts ?? {}, slot.fishCount);
+      const fryQualityCountsBefore = normalizeFishQualityCounts(slot.fryQualityCounts ?? {}, slot.fryCount);
       const mature = Math.min(slot.fryCount, Math.max(1, Math.floor(slot.fryCount / 5)));
-      const matured = transferQualityCounts(slot.fryQualityCounts ?? {}, slot.fishQualityCounts ?? {}, mature);
+      const matured = transferQualityCounts(fryQualityCountsBefore, fishQualityCounts, mature);
       const domesticationGain = QUALITY_VALUES.reduce((sum, quality) => {
-        const maturedCount = (matured.target[quality] ?? 0) - (slot.fishQualityCounts?.[quality] ?? 0);
+        const maturedCount = (matured.target[quality] ?? 0) - (fishQualityCounts[quality] ?? 0);
         return sum + Math.max(0, maturedCount) * POND_DOMESTICATION_BY_QUALITY[quality];
       }, 0);
       const domestication = Math.min(POND_MAX_DOMESTICATION, slot.domestication + domesticationGain);
@@ -184,7 +186,9 @@ export async function transferSpiritPondFry(actor: SpiritPondActor, input: { tar
     const [sourceSlot] = await tx.select().from(spiritPondSlots).where(and(eq(spiritPondSlots.pondId, source.id), eq(spiritPondSlots.slot, input.slot))).limit(1);
     if (!sourceSlot || sourceSlot.fryCount < input.quantity) throw new SpiritPondServiceError('鱼苗数量不足', 409);
     const [targetSlot] = await tx.select().from(spiritPondSlots).where(and(eq(spiritPondSlots.pondId, target.id), eq(spiritPondSlots.speciesId, sourceSlot.speciesId))).limit(1);
-    const transferred = transferQualityCounts(sourceSlot.fryQualityCounts ?? {}, targetSlot?.fryQualityCounts ?? {}, input.quantity);
+    const sourceFryQualityCounts = normalizeFishQualityCounts(sourceSlot.fryQualityCounts ?? {}, sourceSlot.fryCount);
+    const targetFryQualityCounts = normalizeFishQualityCounts(targetSlot?.fryQualityCounts ?? {}, targetSlot?.fryCount ?? 0);
+    const transferred = transferQualityCounts(sourceFryQualityCounts, targetFryQualityCounts, input.quantity);
     if (transferred.moved !== input.quantity) throw new SpiritPondServiceError('鱼苗品质账本不足，请先结算繁殖', 409);
     if (targetSlot) await tx.update(spiritPondSlots).set({ fryCount: sql`${spiritPondSlots.fryCount} + ${input.quantity}`, fryQualityCounts: transferred.target }).where(eq(spiritPondSlots.id, targetSlot.id));
     else {

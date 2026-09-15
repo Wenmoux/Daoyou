@@ -18,7 +18,7 @@ import type {
   SpiritPondFryListingCancelRequest,
   SpiritPondFryListingCreateRequest,
 } from '@shared/contracts/spiritPond';
-import { FISH_SPECIES_BY_ID } from '@shared/engine/fishing';
+import { FISH_SPECIES_BY_ID, normalizeFishQualityCounts } from '@shared/engine/fishing';
 import { and, desc, eq, gt, sql } from 'drizzle-orm';
 
 export type SpiritPondMarketActor = { userId: string; cultivatorId: string };
@@ -90,11 +90,12 @@ export async function createSpiritPondFryListing(
         .for('update')
         .limit(1);
       if (!slot) throw new SpiritPondMarketError('该喂养槽还没有鱼苗', 404);
-      if ((slot.fryQualityCounts?.[input.quality] ?? 0) < input.quantity) {
+      const currentFryQualityCounts = normalizeFishQualityCounts(slot.fryQualityCounts ?? {}, slot.fryCount);
+      if ((currentFryQualityCounts[input.quality] ?? 0) < input.quantity) {
         throw new SpiritPondMarketError(`该品质鱼苗不足 ${input.quantity} 尾`, 409);
       }
       const fryQualityCounts = changeQualityCount(
-        slot.fryQualityCounts ?? {},
+        currentFryQualityCounts,
         input.quality,
         -input.quantity,
       );
@@ -163,11 +164,12 @@ export async function buySpiritPondFryListing(
       await updateSpiritStones(seller.userId, listing.sellerCultivatorId, totalPrice, tx);
 
       if (target) {
+        const fryQualityCounts = normalizeFishQualityCounts(target.fryQualityCounts ?? {}, target.fryCount);
         await tx
           .update(spiritPondSlots)
           .set({
             fryCount: sql`${spiritPondSlots.fryCount} + ${input.quantity}`,
-            fryQualityCounts: changeQualityCount(target.fryQualityCounts ?? {}, listing.quality, input.quantity),
+            fryQualityCounts: changeQualityCount(fryQualityCounts, listing.quality, input.quantity),
           })
           .where(eq(spiritPondSlots.id, target.id));
       } else {
@@ -226,11 +228,12 @@ export async function cancelSpiritPondFryListing(
       const freeSlot = [1, 2].find((slotNumber) => !slots.some((slot) => slot.slot === slotNumber));
       if (!target && !freeSlot) throw new SpiritPondMarketError('灵池没有空槽可以收回鱼苗', 409);
       if (target) {
+        const fryQualityCounts = normalizeFishQualityCounts(target.fryQualityCounts ?? {}, target.fryCount);
         await tx
           .update(spiritPondSlots)
           .set({
             fryCount: sql`${spiritPondSlots.fryCount} + ${listing.remainingQuantity}`,
-            fryQualityCounts: changeQualityCount(target.fryQualityCounts ?? {}, listing.quality, listing.remainingQuantity),
+            fryQualityCounts: changeQualityCount(fryQualityCounts, listing.quality, listing.remainingQuantity),
           })
           .where(eq(spiritPondSlots.id, target.id));
       } else {

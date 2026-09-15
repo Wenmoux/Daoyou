@@ -35,6 +35,22 @@ export function nextPondStage(domestication: number) {
   return POND_PROBABILITY_STAGES.find((item) => item.threshold > domestication) ?? null;
 }
 
+export function normalizeFishQualityCounts(
+  counts: Partial<Record<Quality, number>>,
+  total: number,
+): Record<string, number> {
+  const targetTotal = Math.max(0, Math.floor(total));
+  const normalized: Record<string, number> = {};
+  let remaining = targetTotal;
+  for (const quality of [...Object.keys(QUALITY_ORDER) as Quality[]].reverse()) {
+    const amount = Math.min(remaining, Math.max(0, Math.floor(counts[quality] ?? 0)));
+    if (amount > 0) normalized[quality] = amount;
+    remaining -= amount;
+  }
+  if (remaining > 0) normalized['凡品'] = (normalized['凡品'] ?? 0) + remaining;
+  return normalized;
+}
+
 export function adjacentUpgradeCost(quality: Quality): number | null {
   const order = QUALITY_ORDER[quality];
   if (order >= 7) return null;
