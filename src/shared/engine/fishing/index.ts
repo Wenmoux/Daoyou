@@ -9,3 +9,4 @@ export * from './environment';
 export * from './rules';
 export * from './rewards';
 export * from './types';
+export * from './economy';

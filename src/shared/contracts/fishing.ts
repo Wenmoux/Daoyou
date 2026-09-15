@@ -18,6 +18,7 @@ export type FishingCastRequest = z.infer<typeof FishingCastRequestSchema>;
 export const FishingSessionRequestSchema = z.object({
   locationId: z.string().trim().min(1).max(80),
   mapNodeId: z.string().trim().min(1).max(80).optional(),
+  pondVisitId: z.string().uuid().optional(),
   baitId: z.string().trim().min(1).max(80).default('spirit-worm'),
   requestId: z.string().trim().min(8).max(128),
 });

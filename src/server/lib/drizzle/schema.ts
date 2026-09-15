@@ -204,6 +204,12 @@ export const fishingProfiles = pgTable(
       .$type<string[]>()
       .notNull()
       .default([]),
+    fishPoints: integer('fish_points').notNull().default(0),
+    fishingBuffs: jsonb('fishing_buffs')
+      .$type<Array<{ type: 'legendary_rate' | 'double_catch'; expiresAt: string; source: string }>>()
+      .notNull()
+      .default([]),
+    merchantAvailableUntil: timestamp('merchant_available_until'),
     createdAt: timestamp('created_at').notNull().defaultNow(),
     updatedAt: timestamp('updated_at')
       .notNull()
@@ -229,6 +235,12 @@ export const fishingSessions = pgTable(
     moonPhase: varchar('moon_phase', { length: 16 }).notNull().default('上弦'),
     tideId: varchar('tide_id', { length: 80 }).notNull().default('still-water'),
     anomalyId: varchar('anomaly_id', { length: 80 }),
+    pondId: uuid('pond_id'),
+    pondVisitId: uuid('pond_visit_id'),
+    pondSpeciesWeights: jsonb('pond_species_weights')
+      .$type<Array<{ speciesId: string; probability: number; legendaryMultiplier: number }>>()
+      .notNull()
+      .default([]),
     state: varchar('state', { length: 24 }).notNull(),
     castAt: timestamp('cast_at').notNull(),
     biteAt: timestamp('bite_at').notNull(),
@@ -247,6 +259,66 @@ export const fishingSessions = pgTable(
       table.state,
     ),
     index('fishing_sessions_bite_deadline_idx').on(table.biteDeadlineAt),
+  ],
+);
+
+// 洞府灵池聚合：养殖、喂养槽和访问权限独立于灵田与角色通用 JSON。
+export const spiritPonds = pgTable(
+  'wanjiedaoyou_spirit_ponds',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    ownerCultivatorId: uuid('owner_cultivator_id')
+      .references(() => cultivators.id, { onDelete: 'cascade' })
+      .notNull(),
+    accessMode: varchar('access_mode', { length: 20 }).notNull().default('private'),
+    entryFee: integer('entry_fee').notNull().default(0),
+    nativeSeed: varchar('native_seed', { length: 80 }).notNull().default('xiao-qingyu'),
+    locationId: varchar('location_id', { length: 80 }).notNull().default('qingxi-shallow'),
+    lastBreedAt: timestamp('last_breed_at').notNull().defaultNow(),
+    nextBreedAt: timestamp('next_breed_at').notNull().defaultNow(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex('spirit_ponds_owner_uidx').on(table.ownerCultivatorId),
+    index('spirit_ponds_updated_idx').on(table.updatedAt),
+  ],
+);
+
+export const spiritPondSlots = pgTable(
+  'wanjiedaoyou_spirit_pond_slots',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    pondId: uuid('pond_id').references(() => spiritPonds.id, { onDelete: 'cascade' }).notNull(),
+    slot: integer('slot').notNull(),
+    speciesId: varchar('species_id', { length: 80 }).notNull(),
+    domestication: integer('domestication').notNull().default(0),
+    fishCount: integer('fish_count').notNull().default(0),
+    fryCount: integer('fry_count').notNull().default(0),
+    fishQualityCounts: jsonb('fish_quality_counts').$type<Record<string, number>>().notNull().default({}),
+    fryQualityCounts: jsonb('fry_quality_counts').$type<Record<string, number>>().notNull().default({}),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+    updatedAt: timestamp('updated_at').notNull().defaultNow().$onUpdate(() => new Date()),
+  },
+  (table) => [
+    uniqueIndex('spirit_pond_slots_pond_slot_uidx').on(table.pondId, table.slot),
+    uniqueIndex('spirit_pond_slots_pond_species_uidx').on(table.pondId, table.speciesId),
+  ],
+);
+
+export const spiritPondVisits = pgTable(
+  'wanjiedaoyou_spirit_pond_visits',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    pondId: uuid('pond_id').references(() => spiritPonds.id, { onDelete: 'cascade' }).notNull(),
+    visitorCultivatorId: uuid('visitor_cultivator_id').references(() => cultivators.id, { onDelete: 'cascade' }).notNull(),
+    validUntil: timestamp('valid_until').notNull(),
+    requestId: varchar('request_id', { length: 128 }).notNull(),
+    createdAt: timestamp('created_at').notNull().defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('spirit_pond_visits_request_uidx').on(table.visitorCultivatorId, table.requestId),
+    index('spirit_pond_visits_active_idx').on(table.pondId, table.visitorCultivatorId, table.validUntil),
   ],
 );
 

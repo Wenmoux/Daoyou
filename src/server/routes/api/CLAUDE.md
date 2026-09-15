@@ -6,6 +6,8 @@ Hono API 路由边界。垂钓路由在此完成 active cultivator 鉴权、Zod 
 成员清单
 
 fishing.router.ts: 垂钓快照、开始会话与提竿接口，复用 FishingService 和玩家状态变更响应。
+fishing-economy.router.ts: 鱼贸交易、鱼货积分与限时垂钓增益接口，所有写操作委托经济服务。
+spirit-pond.router.ts: 灵池喂养、繁殖、开放与好友访问接口，服务端验证角色关系。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md
 

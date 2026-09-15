@@ -1,12 +1,14 @@
 # game/
 > L2 | 父级: ../../CLAUDE.md
 
-GameViewportLayout 下的主流程场景。路由页面组织当前任务，跨场景入口统一交给 game shell 或地图动作策略。
+游戏场景页面层，负责把服务端快照编排成可操作的修仙场景；随机结算、权限与资源扣除留在服务端。
 
 成员清单
 
-fishing/route.tsx: 垂钓会话交互与图鉴展示，只提交抛竿和提竿动作，不在浏览器侧结算随机结果。
-fishing/codex/route.tsx: 独立只读鱼图鉴页面，展示鱼种发现与品阶奖励进度。
-map/route.tsx: 可缩放世界地图与节点选择，垂钓节点动作由 map/mapActions.ts 生成。
+fishing/route.tsx: 垂钓会话、鱼讯动画、提竿结算和地图水域入口。
+fishing/codex/route.tsx: 独立鱼类图鉴页面。
+fishing/merchant/route.tsx: 鱼贸商人状态、鱼获换积分/灵石/升阶与限时垂钓增益入口。
+spirit-pond/route.tsx: 洞府灵池喂养槽、繁殖、开放权限和进入灵池垂钓入口。
+map/route.tsx: 世界地图与节点选择，垂钓动作由地图节点驱动。
 
 [PROTOCOL]: 变更时更新此头部，然后检查 CLAUDE.md

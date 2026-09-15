@@ -10,6 +10,9 @@ import {
   fishCodexEntries,
   fishingProfiles,
   fishingSessions,
+  spiritPondSlots,
+  spiritPondVisits,
+  spiritPonds,
 } from '@server/lib/drizzle/schema';
 import { playerCommandExecutor } from '@server/lib/services/CommandExecutors';
 import { addMaterialStackToInventory } from '@server/lib/services/materialInventory';
@@ -28,6 +31,8 @@ import {
   resolveFishingStrikeOutcome,
   resolveFishCatch,
   resolveFishingTierReward,
+  pondProbability,
+  selectPondTarget,
   type FishCodexEntry,
   type FishCatch,
   type FishingProfile,
@@ -39,7 +44,7 @@ import { QUALITY_ORDER, REALM_ORDER, type Quality, type RealmStage, type RealmTy
 import { getOrInitCultivationProgress, stripExpCapForStorage } from '@server/utils/cultivationUtils';
 import type { FishingSessionRequest, FishingStrikeRequest } from '@shared/contracts/fishing';
 import { getFishingMapConfig } from '@shared/lib/game/mapSystem';
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, sql } from 'drizzle-orm';
 import { randomInt } from 'node:crypto';
 
 export type FishingActor = { userId: string; cultivatorId: string };
@@ -113,6 +118,9 @@ function mapFishingProfile(row: typeof fishingProfiles.$inferSelect): FishingPro
     unlockedBaitIds: row.unlockedBaitIds ?? ['spirit-worm'],
     baitStock: row.baitStock ?? { 'spirit-worm': 30 },
     unlockedRewardKeys: row.unlockedRewardKeys ?? [],
+    fishPoints: row.fishPoints,
+    fishingBuffs: (row.fishingBuffs ?? []).filter((buff) => Date.parse(buff.expiresAt) > Date.now()),
+    merchantAvailableUntil: row.merchantAvailableUntil?.toISOString() ?? null,
   };
 }
 
@@ -125,13 +133,14 @@ function mapSession(row: FishingSessionRow, now: Date): FishingSessionView {
   return {
     id: row.id,
     locationId: row.locationId,
-    locationName: getFishingLocation(row.locationId)?.name ?? row.locationId,
+    locationName: row.pondId ? '洞府灵池' : (getFishingLocation(row.locationId)?.name ?? row.locationId),
     state,
     castAt: row.castAt.toISOString(),
     biteAt: row.biteAt.toISOString(),
     biteDeadlineAt: row.biteDeadlineAt.toISOString(),
     now: now.toISOString(),
     baitId: row.baitId,
+    pondVisitId: row.pondVisitId,
     environment: {
       weather: row.weather as FishingEnvironmentSnapshot['weather'],
       timePhase: row.timePhase as FishingEnvironmentSnapshot['timePhase'],
@@ -167,6 +176,9 @@ async function readFishingProfile(cultivatorId: string, q: DbExecutor) {
     baitStock: { 'spirit-worm': 30 },
     unlockedRewardKeys: [],
     unlockedWaterIds: [],
+    fishPoints: 0,
+    fishingBuffs: [],
+    merchantAvailableUntil: null,
     createdAt: new Date(0),
     updatedAt: new Date(0),
   };
@@ -255,7 +267,7 @@ async function getActiveSession(cultivatorId: string, q: DbExecutor) {
   return row ?? null;
 }
 
-export async function getFishingSnapshot(actor: FishingActor, mapNodeId?: string) {
+export async function getFishingSnapshot(actor: FishingActor, mapNodeId?: string, pondVisitId?: string) {
   const q = getExecutor();
   const cultivator = await loadActorCultivator(actor, q);
   const [entries, profile, activeSession] = await Promise.all([
@@ -277,9 +289,12 @@ export async function getFishingSnapshot(actor: FishingActor, mapNodeId?: string
     getAccessibleFishingLocations(cultivator.realm).map((location) => location.id),
   );
   const allLocations = getAccessibleFishingLocations('渡劫');
-  const mappedLocationId = mapNodeId
-    ? getFishingMapConfig(mapNodeId)?.water_id
-    : undefined;
+  const [pondVisit] = pondVisitId
+    ? await q.select({ pondId: spiritPondVisits.pondId, validUntil: spiritPondVisits.validUntil }).from(spiritPondVisits).where(and(eq(spiritPondVisits.id, pondVisitId), eq(spiritPondVisits.visitorCultivatorId, actor.cultivatorId))).limit(1)
+    : [];
+  if (pondVisitId && (!pondVisit || pondVisit.validUntil <= new Date())) throw new FishingServiceError('灵池访问票据已失效', 409);
+  const [pond] = pondVisit ? await q.select({ locationId: spiritPonds.locationId }).from(spiritPonds).where(eq(spiritPonds.id, pondVisit.pondId)).limit(1) : [];
+  const mappedLocationId = pond?.locationId ?? (mapNodeId ? getFishingMapConfig(mapNodeId)?.water_id : undefined);
   if (mapNodeId && !mappedLocationId) {
     throw new FishingServiceError('璇ュ湴鍥捐妭鐐规病鏈夊彲鍨傞挀姘村煙', 404);
   }
@@ -296,7 +311,7 @@ export async function getFishingSnapshot(actor: FishingActor, mapNodeId?: string
     profile: mapFishingProfile(normalizedProfile),
     activeSession: activeSession ? mapSession(activeSession, now) : null,
     selectedLocationId,
-    selectedLocationUnlocked,
+    selectedLocationUnlocked: pondVisitId ? true : selectedLocationUnlocked,
     selectedLocationRequiredLevel: selectedMapConfig?.fishing_level_required ?? null,
     environment: selectedLocationId
       ? resolveFishingEnvironment({ locationId: selectedLocationId, now })
@@ -396,7 +411,7 @@ export async function startFishingSession(
   if (REALM_ORDER[initial.realm] < REALM_ORDER[location.minRealm]) {
     throw new FishingServiceError('当前境界尚未解锁此水域', 409);
   }
-  if (!input.mapNodeId) {
+  if (!input.mapNodeId && !input.pondVisitId) {
     throw new FishingServiceError('璇峰厛浠庡湴鍥鹃€夋嫨鍨傞挀姘村煙', 409);
   }
   if (input.mapNodeId && getFishingMapConfig(input.mapNodeId)?.water_id !== input.locationId) {
@@ -425,13 +440,15 @@ export async function startFishingSession(
         tx,
       );
       const profileWithBaits = await syncUnlockedBaits(normalizedProfile, tx);
-      const mapConfig = getFishingMapConfig(input.mapNodeId!);
-      if (!mapConfig || mapConfig.water_id !== input.locationId) {
-        throw new FishingServiceError('鍨傞挀姘村煙涓庡湴鍥捐妭鐐逛笉鍖归厤', 409);
-      }
       const fishingLevel = fishingLevelFromExperience(profileWithBaits.experience);
-      if (fishingLevel < mapConfig.fishing_level_required) {
-        throw new FishingServiceError(`垂钓等级达到 ${mapConfig.fishing_level_required} 级后才能进入此水域`, 409);
+      if (!input.pondVisitId) {
+        const mapConfig = getFishingMapConfig(input.mapNodeId!);
+        if (!mapConfig || mapConfig.water_id !== input.locationId) {
+          throw new FishingServiceError('垂钓水域与地图节点不匹配', 409);
+        }
+        if (fishingLevel < mapConfig.fishing_level_required) {
+          throw new FishingServiceError(`垂钓等级达到 ${mapConfig.fishing_level_required} 级后才能进入此水域`, 409);
+        }
       }
       if (!profileWithBaits.unlockedBaitIds.includes(bait.id)) {
         throw new FishingServiceError(`垂钓等级达到 ${bait.requiredFishingLevel} 级后才能使用此鱼饵`, 409);
@@ -441,6 +458,21 @@ export async function startFishingSession(
       }
       const profileWithConsumedBait = await consumeFishingBait(profileWithBaits, bait.id, tx);
       const environment = resolveFishingEnvironment({ locationId: input.locationId, now });
+      let pondId: string | null = null;
+      let pondSpeciesWeights: Array<{ speciesId: string; probability: number; legendaryMultiplier: number }> = [];
+      if (input.pondVisitId) {
+        const [visit] = await tx
+          .select({ pondId: spiritPondVisits.pondId, validUntil: spiritPondVisits.validUntil })
+          .from(spiritPondVisits)
+          .where(and(eq(spiritPondVisits.id, input.pondVisitId), eq(spiritPondVisits.visitorCultivatorId, actor.cultivatorId), gt(spiritPondVisits.validUntil, now)))
+          .limit(1);
+        if (!visit) throw new FishingServiceError('灵池访问票据已失效，请重新进入灵池', 409);
+        pondId = visit.pondId;
+        const [pond] = await tx.select({ locationId: spiritPonds.locationId }).from(spiritPonds).where(eq(spiritPonds.id, pondId)).limit(1);
+        if (!pond || pond.locationId !== input.locationId) throw new FishingServiceError('垂钓水域与灵池位置不匹配', 409);
+        const slots = await tx.select().from(spiritPondSlots).where(eq(spiritPondSlots.pondId, pondId));
+        pondSpeciesWeights = slots.map((slot) => ({ speciesId: slot.speciesId, probability: Math.min(30, pondProbability(slot.domestication)), legendaryMultiplier: pondProbability(slot.domestication) >= 30 ? 2 : 1 }));
+      }
       const biteAt = new Date(now.getTime() + biteDelayMs);
       const biteDeadlineAt = new Date(biteAt.getTime() + biteWindowMs);
       const [session] = await tx
@@ -455,6 +487,9 @@ export async function startFishingSession(
           moonPhase: environment.moonPhase,
           tideId: environment.tideId,
           anomalyId: environment.anomalyId,
+          pondId,
+          pondVisitId: input.pondVisitId ?? null,
+          pondSpeciesWeights,
           state: 'waiting_bite',
           castAt: now,
           biteAt,
@@ -532,6 +567,12 @@ export async function strikeFishingSession(
         };
       }
 
+      const [profile] = await tx.select().from(fishingProfiles).where(eq(fishingProfiles.cultivatorId, actor.cultivatorId)).limit(1);
+      if (!profile) throw new FishingServiceError('垂钓档案不存在', 404);
+      const activeBuffs = (profile.fishingBuffs ?? []).filter((buff) => Date.parse(buff.expiresAt) > now.getTime());
+      const pondTarget = selectPondTarget(session.pondSpeciesWeights ?? [], randomInt(0, 1_000_000) / 1_000_000);
+      const legendaryBoost = activeBuffs.some((buff) => buff.type === 'legendary_rate') ? 0.03 : 0;
+      const pondQualityBoost = pondTarget?.legendaryMultiplier === 2 ? 0.015 : 0;
       const caught = resolveFishCatch({
         locationId: session.locationId,
         realm: initial.realm,
@@ -548,15 +589,16 @@ export async function strikeFishingSession(
         speciesRoll: randomInt(0, 1_000_000) / 1_000_000,
         qualityRoll: randomInt(0, 1_000_000) / 1_000_000,
         sizeRoll: randomInt(0, 1_000_000) / 1_000_000,
+        forcedSpeciesId: pondTarget?.speciesId,
+        qualityBonus: legendaryBoost + pondQualityBoost,
       });
       const firstDiscovery = await upsertCodexEntry(tx, actor.cultivatorId, caught, now);
       const experienceGained = fishingExperienceForCatch({ quality: caught.quality, weight: caught.weight, firstDiscovery });
+      const catchQuantity = activeBuffs.some((buff) => buff.type === 'double_catch') ? 2 : 1;
       await addMaterialStackToInventory(actor.cultivatorId, {
         name: caught.speciesName, type: 'fish', rank: caught.quality, element: caught.element,
-        description: caught.description, details: { speciesId: caught.speciesId, tier: caught.tier, firstDiscovery }, quantity: 1,
+        description: caught.description, details: { speciesId: caught.speciesId, tier: caught.tier, firstDiscovery }, quantity: catchQuantity,
       }, tx);
-      const [profile] = await tx.select().from(fishingProfiles).where(eq(fishingProfiles.cultivatorId, actor.cultivatorId)).limit(1);
-      if (!profile) throw new FishingServiceError('垂钓档案不存在', 404);
       const reward = resolveFishingTierReward({ speciesId: caught.speciesId, quality: caught.quality, element: caught.element });
       const unlockedRewardKeys = profile.unlockedRewardKeys ?? [];
       const rewardUnlocked = !unlockedRewardKeys.includes(reward.rewardKey);
@@ -568,13 +610,18 @@ export async function strikeFishingSession(
         await tx.update(cultivators).set({ cultivation_progress: stripExpCapForStorage(progress), [reward.attribute]: sql`${cultivators[reward.attribute]} + ${reward.attributeGain}` }).where(eq(cultivators.id, actor.cultivatorId));
         await tx.update(fishingProfiles).set({ unlockedRewardKeys: [...unlockedRewardKeys, reward.rewardKey] }).where(eq(fishingProfiles.cultivatorId, actor.cultivatorId));
       }
-      await tx.update(fishingProfiles).set({ experience: sql`${fishingProfiles.experience} + ${experienceGained}`, successfulCatches: sql`${fishingProfiles.successfulCatches} + 1`, largestWeight: sql`GREATEST(${fishingProfiles.largestWeight}, ${caught.weight})` }).where(eq(fishingProfiles.cultivatorId, actor.cultivatorId));
+      const merchantAvailableUntil = profile.merchantAvailableUntil && profile.merchantAvailableUntil > now
+        ? profile.merchantAvailableUntil
+        : randomInt(0, 100) < 12
+          ? new Date(now.getTime() + 30 * 60 * 1000)
+          : null;
+      await tx.update(fishingProfiles).set({ experience: sql`${fishingProfiles.experience} + ${experienceGained}`, successfulCatches: sql`${fishingProfiles.successfulCatches} + 1`, largestWeight: sql`GREATEST(${fishingProfiles.largestWeight}, ${caught.weight})`, fishingBuffs: activeBuffs, merchantAvailableUntil }).where(eq(fishingProfiles.cultivatorId, actor.cultivatorId));
       const [profileAfterCatch] = await tx.select().from(fishingProfiles).where(eq(fishingProfiles.cultivatorId, actor.cultivatorId)).limit(1);
       if (!profileAfterCatch) throw new FishingServiceError('垂钓档案不存在', 404);
       const previousBaitIds = new Set(profile.unlockedBaitIds ?? []);
       const profileWithBaits = await syncUnlockedBaits(profileAfterCatch, tx);
       const newlyUnlockedBaitIds = profileWithBaits.unlockedBaitIds.filter((baitId) => !previousBaitIds.has(baitId));
-      const result = { outcome: 'hooked' as const, catch: caught, experienceGained, firstDiscovery, rewardUnlocked, cultivationExpGained: rewardUnlocked ? reward.cultivationExp : 0, attributeReward: rewardUnlocked ? { attribute: reward.attribute, amount: reward.attributeGain } : undefined, newlyUnlockedBaitIds, dailyCastsRemaining: Math.max(0, DAILY_FISHING_CAST_LIMIT - profileAfterCatch.dailyCasts) };
+      const result = { outcome: 'hooked' as const, catch: caught, catchQuantity, experienceGained, firstDiscovery, rewardUnlocked, cultivationExpGained: rewardUnlocked ? reward.cultivationExp : 0, attributeReward: rewardUnlocked ? { attribute: reward.attribute, amount: reward.attributeGain } : undefined, newlyUnlockedBaitIds, dailyCastsRemaining: Math.max(0, DAILY_FISHING_CAST_LIMIT - profileAfterCatch.dailyCasts), merchantAvailableUntil: merchantAvailableUntil?.toISOString() ?? null };
       await tx.update(fishingSessions).set({ state: 'landed', resolvedAt: now, result }).where(eq(fishingSessions.id, session.id));
       return {
         result,

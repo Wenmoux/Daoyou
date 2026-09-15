@@ -231,6 +231,7 @@ export const router = createBrowserRouter(
                 '洞府灵田',
               )}
             />
+            <Route path="spirit-pond" lazy={lazyRoute(() => import('@app/routes/game/spirit-pond/route'))} handle={scene({ id: 'spirit-pond', presentation: 'workflow' }, '洞府灵池')} />
             <Route
               path="fishing"
               lazy={lazyRoute(() => import('@app/routes/game/fishing/route'))}
@@ -250,6 +251,7 @@ export const router = createBrowserRouter(
                 '万鱼图鉴',
               )}
             />
+            <Route path="fishing/merchant" lazy={lazyRoute(() => import('@app/routes/game/fishing/merchant/route'))} handle={scene({ id: 'fishing', presentation: 'workflow' }, '鱼贸商人')} />
             <Route
               path="body-cultivation"
               lazy={lazyRoute(

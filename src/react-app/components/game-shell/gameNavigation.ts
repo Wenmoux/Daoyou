@@ -80,6 +80,12 @@ export const gameDockGroups: GameNavGroup[] = [
         expandedDockLabel: '🌱 洞府灵田',
       },
       {
+        id: 'spirit-pond',
+        sceneLabel: '洞府灵池',
+        href: '/game/spirit-pond',
+        expandedDockLabel: '🐟 洞府灵池',
+      },
+      {
         id: 'fishing',
         sceneLabel: '垂钓问津',
         href: '/game/fishing',

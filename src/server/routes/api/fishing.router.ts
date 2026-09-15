@@ -23,7 +23,7 @@ function actor(c: Context<AppEnv>) {
 
 router.get('/', requireActiveCultivatorRef(), async (c) => c.json({
   success: true,
-  data: await getFishingSnapshot(actor(c), c.req.query('mapNodeId')),
+  data: await getFishingSnapshot(actor(c), c.req.query('mapNodeId'), c.req.query('pondVisitId')),
 }));
 
 async function start(c: Context<AppEnv>) {

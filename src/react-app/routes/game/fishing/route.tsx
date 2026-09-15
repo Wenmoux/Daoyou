@@ -96,8 +96,11 @@ function requestId(prefix: string) {
   return `fishing:${prefix}:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
 }
 
-async function readSnapshot(mapNodeId?: string): Promise<Snapshot> {
-  const query = mapNodeId ? `?mapNodeId=${encodeURIComponent(mapNodeId)}` : '';
+async function readSnapshot(mapNodeId?: string, pondVisitId?: string): Promise<Snapshot> {
+  const params = new URLSearchParams();
+  if (mapNodeId) params.set('mapNodeId', mapNodeId);
+  if (pondVisitId) params.set('pondVisitId', pondVisitId);
+  const query = params.toString() ? `?${params.toString()}` : '';
   const response = await fetch(`/api/fishing${query}`, { cache: 'no-store' });
   const payload = (await response.json()) as Envelope<Snapshot>;
   if (!response.ok || !payload.success || !payload.data) throw new Error(payload.error ?? '垂钓水域暂时无法查看');
@@ -141,6 +144,7 @@ function FishingScene({ locationName, environment, session, biting }: {
 export default function FishingPage() {
   const [searchParams] = useSearchParams();
   const mapNodeId = searchParams.get('mapNodeId') ?? undefined;
+  const pondVisitId = searchParams.get('pondVisitId') ?? undefined;
   const { mutate } = useResourceMutation();
   const { pushToast, openDialog } = useInkUI();
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
@@ -162,19 +166,19 @@ export default function FishingPage() {
   }, []);
 
   const refresh = useCallback(async () => {
-    try { applySnapshot(await readSnapshot(mapNodeId)); }
+    try { applySnapshot(await readSnapshot(mapNodeId, pondVisitId)); }
     catch (reason) { setError(reason instanceof Error ? reason.message : '垂钓水域暂时无法查看'); }
     finally { setLoading(false); }
-  }, [applySnapshot, mapNodeId]);
+  }, [applySnapshot, mapNodeId, pondVisitId]);
 
   useEffect(() => {
     let active = true;
-    void readSnapshot(mapNodeId)
+    void readSnapshot(mapNodeId, pondVisitId)
       .then((next) => { if (active) applySnapshot(next); })
       .catch((reason: unknown) => { if (active) setError(reason instanceof Error ? reason.message : '垂钓水域暂时无法查看'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
-  }, [applySnapshot, mapNodeId]);
+  }, [applySnapshot, mapNodeId, pondVisitId]);
   useEffect(() => {
     if (!session) return;
     const timer = window.setInterval(() => setNow(Date.now()), 250);
@@ -201,7 +205,7 @@ export default function FishingPage() {
     if (!snapshot?.selectedLocationId) return;
     setBusy(true);
     try {
-      const result = await mutate<SessionResult>(fetch('/api/fishing/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locationId: snapshot.selectedLocationId, mapNodeId, baitId, requestId: requestId('cast') }) }));
+      const result = await mutate<SessionResult>(fetch('/api/fishing/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ locationId: snapshot.selectedLocationId, mapNodeId, pondVisitId, baitId, requestId: requestId('cast') }) }));
       setSession(result.session);
       setClockOffset(Date.parse(result.session.now) - Date.now());
       setNow(Date.now());
@@ -230,14 +234,14 @@ export default function FishingPage() {
     <GameSceneFrame variant="workflow" headerMeta={<div className="flex flex-wrap gap-x-5 text-sm text-ink-secondary"><span>境界：{snapshot.player.realm}</span><span>垂钓 Lv.{snapshot.profile.level}</span><span>今日鱼讯：{snapshot.profile.remainingCasts}/{snapshot.profile.dailyLimit}</span><Link className="text-crimson hover:underline" to="/game/fishing/codex">打开鱼图鉴</Link></div>}>
       {error ? <InkNotice tone="warning">{error}</InkNotice> : null}
       <InkCard padding="lg" className="space-y-5">
-        <div className="flex items-end justify-between gap-3"><div><p className="text-lg font-medium">水面无言，先听鱼讯</p><p className="mt-1 text-sm text-ink-secondary">抛竿后等待浮标下沉，在鱼讯窗口内提竿。</p></div><div className="min-w-48 text-right text-sm text-ink-secondary"><p>经验 {snapshot.profile.experience}</p><div className="mt-1 h-1.5 bg-ink/10"><div className="h-full bg-crimson" style={{ width: `${progress}%` }} /></div></div></div>
+        <div className="flex items-end justify-between gap-3"><div><p className="text-lg font-medium">水面无言，先听鱼讯</p><p className="mt-1 text-sm text-ink-secondary">抛竿后等待浮标下沉，在鱼讯窗口内提竿。</p><div className="mt-2 flex gap-3 text-xs"><Link className="text-crimson hover:underline" to="/game/fishing/merchant">鱼贸商人</Link><Link className="text-crimson hover:underline" to="/game/spirit-pond">洞府灵池</Link></div></div><div className="min-w-48 text-right text-sm text-ink-secondary"><p>经验 {snapshot.profile.experience}</p><div className="mt-1 h-1.5 bg-ink/10"><div className="h-full bg-crimson" style={{ width: `${progress}%` }} /></div></div></div>
         <FishingScene locationName={session?.locationName ?? location?.name ?? '未选择水域'} environment={session?.environment ?? snapshot.environment} session={session} biting={biting} />
         <div className="sticky top-2 z-10 border border-crimson/35 bg-[#f4eee3]/95 px-4 py-3 shadow-[3px_3px_0_rgba(163,69,50,.18)]">
           <div className="flex items-center justify-between gap-3"><div className="text-sm"><p className="font-medium">{session ? `正在垂钓：${session.locationName}` : location?.name ?? '请从地图选择水域'}</p><p className={biting ? 'font-medium text-crimson' : 'text-ink-secondary'}>{session ? (biting ? '鱼讯出现，立即提竿！' : '浮标尚未下沉，静候鱼讯……') : '选好鱼饵后抛竿。'}</p></div>
-            {session ? <InkButton variant={biting ? 'primary' : 'secondary'} disabled={busy} onClick={() => void strike()}>{biting ? '提竿' : '现在提竿'}</InkButton> : <InkButton variant="primary" disabled={busy || !mapNodeId || !snapshot.selectedLocationUnlocked || snapshot.profile.remainingCasts <= 0} onClick={() => void cast()}>{busy ? '鱼竿入水中……' : '抛竿'}</InkButton>}
+            {session ? <InkButton variant={biting ? 'primary' : 'secondary'} disabled={busy} onClick={() => void strike()}>{biting ? '提竿' : '现在提竿'}</InkButton> : <InkButton variant="primary" disabled={busy || (!mapNodeId && !pondVisitId) || !snapshot.selectedLocationUnlocked || snapshot.profile.remainingCasts <= 0} onClick={() => void cast()}>{busy ? '鱼竿入水中……' : '抛竿'}</InkButton>}
           </div>
         </div>
-        {!mapNodeId ? <div className="border border-ink/15 p-4 text-sm text-ink-secondary">垂钓水域由地图节点决定。<Link className="ml-2 text-crimson hover:underline" to="/game/map">前往地图 →</Link></div> : !snapshot.selectedLocationUnlocked ? <InkNotice tone="warning">垂钓等级达到 {snapshot.selectedLocationRequiredLevel} 级后才能进入此水域。</InkNotice> : null}
+        {!mapNodeId && !pondVisitId ? <div className="border border-ink/15 p-4 text-sm text-ink-secondary">垂钓水域由地图节点决定。<Link className="ml-2 text-crimson hover:underline" to="/game/map">前往地图 →</Link></div> : !snapshot.selectedLocationUnlocked ? <InkNotice tone="warning">垂钓等级达到 {snapshot.selectedLocationRequiredLevel} 级后才能进入此水域。</InkNotice> : null}
         <div className="grid gap-3 sm:grid-cols-2">{snapshot.baits.map((bait) => <button key={bait.id} type="button" disabled={Boolean(session) || busy || !bait.unlocked || bait.stock <= 0} onClick={() => setBaitId(bait.id)} className={`border p-3 text-left ${baitId === bait.id ? 'border-crimson bg-crimson/5' : 'border-ink/15'} ${!bait.unlocked || bait.stock <= 0 ? 'opacity-50' : ''}`}><div className="flex justify-between"><span className="font-medium">{bait.name}</span><span className="text-xs text-ink-secondary">{bait.unlocked ? `库存 ${bait.stock}` : `Lv.${bait.requiredFishingLevel} 解锁`}</span></div><p className="mt-1 text-xs text-ink-secondary">{bait.description}</p></button>)}</div>
       </InkCard>
     </GameSceneFrame>

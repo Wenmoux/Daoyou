@@ -10,9 +10,34 @@ import {
 import { getFishingBait, resolveFishingEnvironment } from './environment';
 import { FISH_SPECIES } from './catalog';
 import { DAILY_FISHING_CAST_LIMIT, fishingRewardKey, resolveFishingTierReward } from './rewards';
-import { QUALITY_VALUES } from '@shared/types/constants';
+import { QUALITY_ORDER, QUALITY_VALUES } from '@shared/types/constants';
+import { FISHING_BUFF_COSTS, FISH_POINT_REWARDS, adjacentUpgradeCost, pondProbability, selectPondTarget } from './economy';
 
 describe('fishing rules', () => {
+  it('raises quality when a positive quality bonus is applied', () => {
+    const base = resolveFishCatch({ locationId: 'qingxi-shallow', realm: '炼气', speciesRoll: 0, qualityRoll: 0.9, sizeRoll: 0 });
+    const boosted = resolveFishCatch({ locationId: 'qingxi-shallow', realm: '炼气', speciesRoll: 0, qualityRoll: 0.9, sizeRoll: 0, qualityBonus: 0.08 });
+    expect(QUALITY_ORDER[boosted.quality]).toBeGreaterThan(QUALITY_ORDER[base.quality]);
+  });
+
+  it('reserves at most sixty percent of a pond for two target species', () => {
+    const weights = [
+      { speciesId: 'a', probability: 30, legendaryMultiplier: 2 },
+      { speciesId: 'b', probability: 30, legendaryMultiplier: 1 },
+    ];
+    expect(selectPondTarget(weights, 0.1)?.speciesId).toBe('a');
+    expect(selectPondTarget(weights, 0.45)?.speciesId).toBe('b');
+    expect(selectPondTarget(weights, 0.75)).toBeNull();
+  });
+
+  it('keeps fish economy thresholds deterministic', () => {
+    expect(pondProbability(0)).toBe(0);
+    expect(pondProbability(1000)).toBe(30);
+    expect(adjacentUpgradeCost('凡品')).toBe(8);
+    expect(adjacentUpgradeCost('神品')).toBeNull();
+    expect(FISHING_BUFF_COSTS.legendary_rate).toBe(120);
+    expect(FISH_POINT_REWARDS['spirit-worm-pack'].quantity).toBe(10);
+  });
   it('only unlocks locations up to the cultivator realm', () => {
     expect(getAccessibleFishingLocations('炼气').map((item) => item.id)).toEqual([
       'qingxi-shallow',

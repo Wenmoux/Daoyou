@@ -39,7 +39,7 @@ function pickWeighted<T extends { weight: number }>(items: readonly T[], roll: n
 }
 
 function qualityFromRoll(roll: number, bonus: number): Quality {
-  const adjusted = clampRoll(roll - bonus);
+  const adjusted = clampRoll(roll + bonus);
   const thresholds = [0.52, 0.78, 0.91, 0.97, 0.99, 0.997, 0.999];
   const index = thresholds.findIndex((threshold) => adjusted < threshold);
   return index === -1 ? '神品' : QUALITY_VALUES[index]!;
@@ -79,6 +79,8 @@ export function resolveFishCatch(input: {
   bait?: FishingBaitDefinition;
   baitId?: string;
   environment?: FishingEnvironmentSnapshot;
+  forcedSpeciesId?: string;
+  qualityBonus?: number;
 }): FishCatch {
   const location = getFishingLocation(input.locationId);
   if (!location) throw new Error('垂钓水域不存在');
@@ -87,7 +89,8 @@ export function resolveFishCatch(input: {
   const bait = input.bait ?? (input.baitId ? getFishingBait(input.baitId) : null);
   const tide = getFishingTide(environment.tideId);
   const anomaly = getFishingAnomaly(environment.anomalyId);
-  const candidates = location.speciesIds
+  const speciesIds = input.forcedSpeciesId ? [input.forcedSpeciesId] : location.speciesIds;
+  const candidates = speciesIds
     .map((id) => FISH_SPECIES_BY_ID[id])
     .filter((species): species is FishSpeciesDefinition => Boolean(species))
     .map((species) => ({
@@ -100,7 +103,7 @@ export function resolveFishCatch(input: {
     }));
   if (candidates.length === 0) throw new Error('水域尚未配置鱼种');
   const species = pickWeighted(candidates, input.speciesRoll);
-  const qualityBonus = location.qualityBonus + (bait?.qualityBonus ?? 0) + (tide?.qualityBonus ?? 0) + (anomaly?.qualityBonus ?? 0);
+  const qualityBonus = location.qualityBonus + (bait?.qualityBonus ?? 0) + (tide?.qualityBonus ?? 0) + (anomaly?.qualityBonus ?? 0) + (input.qualityBonus ?? 0);
   const quality = qualityFromRoll(input.qualityRoll, qualityBonus);
   const [minWeight, maxWeight] = species.sizeRange;
   const weight = Number((minWeight + (maxWeight - minWeight) * clampRoll(input.sizeRoll)).toFixed(2));

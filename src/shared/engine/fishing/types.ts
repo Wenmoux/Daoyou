@@ -150,6 +150,9 @@ export interface FishingProfile {
   unlockedBaitIds: readonly string[];
   baitStock: Readonly<Record<string, number>>;
   unlockedRewardKeys: readonly string[];
+  fishPoints: number;
+  fishingBuffs: readonly { type: 'legendary_rate' | 'double_catch'; expiresAt: string; source: string }[];
+  merchantAvailableUntil: string | null;
 }
 
 export interface FishingSessionView {
@@ -162,5 +165,6 @@ export interface FishingSessionView {
   biteDeadlineAt: string;
   now: string;
   baitId: string;
+  pondVisitId: string | null;
   environment: FishingEnvironmentSnapshot;
 }
